@@ -1,5 +1,5 @@
 # Worker na raiz do repo — permite `npx wrangler deploy` sem --config
-name = "indicadores-hu-api"
+name = "dashboardhu"
 main = "worker/src/index.ts"
 compatibility_date = "2024-05-01"
 
