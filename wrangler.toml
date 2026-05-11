@@ -1,0 +1,9 @@
+# Worker na raiz do repo — permite `npx wrangler deploy` sem --config
+name = "indicadores-hu-api"
+main = "worker/src/index.ts"
+compatibility_date = "2024-05-01"
+
+# GAS_WEBAPP_URL: painel Cloudflare ou [vars] abaixo (não commitar segredos)
+# GAS_SECRET: wrangler secret put GAS_SECRET  OU  .dev.vars local (ver .dev.vars.example)
+[vars]
+# GAS_WEBAPP_URL = "https://script.google.com/macros/s/SEU_DEPLOY/exec"

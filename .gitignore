@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.dev.vars
 worker/.dev.vars
 
 # Logs

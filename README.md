@@ -20,7 +20,7 @@ Frontend em **React + Vite** que fala com um **Cloudflare Worker**, que por sua 
 
    Em produção, use a URL pública do Worker (por exemplo `https://indicadores-hu-api.<subdomain>.workers.dev`).
 
-2. Worker — copie `worker/.dev.vars.example` para `worker/.dev.vars` e preencha:
+2. Worker — copie **`.dev.vars.example`** para **`.dev.vars`** na **raiz** do projeto (ao lado de `wrangler.toml`) e preencha:
 
    - `GAS_WEBAPP_URL` — URL `/exec` do Web App do Apps Script  
    - `GAS_SECRET` — mesmo valor da propriedade `API_SECRET` configurada no script (`gas/Code.gs`)
@@ -51,7 +51,7 @@ O Worker **indicadores-hu-api** precisa das duas variáveis no **mesmo** deploy 
 | **Cloudflare** → Workers → **indicadores-hu-api** → Settings → Variables and Secrets | **`GAS_WEBAPP_URL`** (texto) = URL `/exec` do Web App |
 | **Mesmo lugar** | **`GAS_SECRET`** (tipo *Secret*) = mesmo valor que **`API_SECRET`** no Apps Script |
 
-Se você tirou **`VITE_GAS_SECRET`** do `.env` para evitar CORS, o navegador **não** manda mais `X-GAS-Secret` — aí o **`GAS_SECRET` obrigatoriamente** tem que existir na Cloudflare (não basta estar só em `worker/.dev.vars` local).
+Se você tirou **`VITE_GAS_SECRET`** do `.env` para evitar CORS, o navegador **não** manda mais `X-GAS-Secret` — aí o **`GAS_SECRET` obrigatoriamente** tem que existir na Cloudflare (não basta estar só em **`.dev.vars`** na raiz para deploy local).
 
 Variáveis em outro Worker (ex.: nome diferente) **não** contam para o `indicadores-hu-api`.
 
@@ -59,7 +59,7 @@ Variáveis em outro Worker (ex.: nome diferente) **não** contam para o `indicad
 
 - `src/` — aplicativo React  
 - `src/api/apiClient.js` — chamadas `POST /api` ao Worker  
-- `worker/` — proxy CORS + segredo para o GAS (`worker/wrangler.toml`)  
+- `worker/` — código do Worker (`worker/src/index.ts`) · config **`wrangler.toml`** na raiz  
 - `gas/Code.gs` — código de referência do Apps Script (CRUD nas abas + `autenticar`)
 
 ## Imagens da Landing (`public/images/`)
