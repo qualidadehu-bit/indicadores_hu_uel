@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120">
+  <rect width="360" height="120" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="180" y="68" fill="#334155" font-family="system-ui,sans-serif" font-size="14" font-weight="600" text-anchor="middle">Logo / assinatura</text>
+  <text x="180" y="88" fill="#64748b" font-family="system-ui,sans-serif" font-size="11" text-anchor="middle">Substitua por assinatura.png (README)</text>
+</svg>

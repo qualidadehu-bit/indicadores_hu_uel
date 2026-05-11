@@ -1,40 +1,57 @@
-**Welcome to your Base44 project** 
+# Gestão à Vista — Indicadores HU UEL
 
-**About**
+Frontend em **React + Vite** que fala com um **Cloudflare Worker**, que por sua vez chama o **Google Apps Script** (planilha no Google Sheets).
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+## Pré-requisitos
 
-This project contains everything you need to run your app locally.
+- Node.js LTS
+- Conta Cloudflare (para publicar o Worker)
+- Projeto Google Apps Script implantado como **aplicativo da Web**, ligado à planilha (ver `gas/Code.gs`)
 
-**Edit the code in your local development environment**
+## Configuração
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+1. Copie `.env.example` para `.env` ou `.env.local` e defina:
 
-**Prerequisites:** 
+   ```bash
+   VITE_WORKER_URL=http://localhost:8787
+   ```
 
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
+   Em produção, use a URL pública do Worker (por exemplo `https://indicadores-hu-api.<subdomain>.workers.dev`).
 
-```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
+2. Worker — copie `worker/.dev.vars.example` para `worker/.dev.vars` e preencha:
 
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
-```
+   - `GAS_WEBAPP_URL` — URL `/exec` do Web App do Apps Script  
+   - `GAS_SECRET` — mesmo valor da propriedade `API_SECRET` configurada no script (`gas/Code.gs`)
 
-Run the app: `npm run dev`
+## Comandos
 
-**Publish your changes**
+| Comando | Descrição |
+|--------|-----------|
+| `npm install` | Instala dependências |
+| `npm run dev` | Frontend Vite (desenvolvimento) |
+| `npm run build` | Build de produção |
+| `npm run preview` | Preview do build |
+| `npm run worker:dev` | Worker local (Wrangler) |
+| `npm run worker:deploy` | Publica o Worker na Cloudflare |
+| `npm run cf:dev` | Alias do `worker:dev` (mesmo Wrangler) |
+| `npm run cf:deploy` | Alias do `worker:deploy` |
 
-Open [Base44.com](http://Base44.com) and click on Publish.
+**Stack completa em desenvolvimento local:** use **dois terminais** — não há script `dev:full` para não adicionar dependências só para paralelismo; em um terminal rode `npm run cf:dev` (ou `worker:dev`), em outro `npm run dev`. No `.env`, `VITE_WORKER_URL` deve ser a URL/porta que o Wrangler mostrar (ex.: `http://127.0.0.1:8787` ou `:8788` se a 8787 estiver ocupada).
 
-**Docs & Support**
+Fluxo alternativo: só `npm run dev` com `VITE_WORKER_URL` apontando para o Worker já publicado na Cloudflare (`*.workers.dev`).
 
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
+## Estrutura útil
 
-Support: [https://app.base44.com/support](https://app.base44.com/support)
-# indicadores_hu_uel
+- `src/` — aplicativo React  
+- `src/api/apiClient.js` — chamadas `POST /api` ao Worker  
+- `worker/` — proxy CORS + segredo para o GAS (`worker/wrangler.toml`)  
+- `gas/Code.gs` — código de referência do Apps Script (CRUD nas abas + `autenticar`)
+
+## Imagens da Landing (`public/images/`)
+
+Os arquivos atuais são **SVGs de placeholder**:
+
+- `public/images/hu-cover.svg` — área principal (“foto” do hospital)  
+- `public/images/assinatura.svg` — logo no canto superior direito  
+
+Para usar fotos reais, coloque por exemplo `hu.jpg` e `assinatura.png` nesta pasta e atualize em `src/pages/Landing.jsx` os caminhos (`/images/hu.jpg`, `/images/assinatura.png`).
