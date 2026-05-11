@@ -1,3 +1,4 @@
 # Copie para worker/.dev.vars (não commitar). Usado por `wrangler dev`.
-GAS_SECRET=cole-o-mesmo-valor-da-propriedade-API_SECRET-no-Apps-Script
-GAS_WEBAPP_URL=https://script.google.com/macros/s/SEU_DEPLOY/exec
+# Use aspas se a senha tiver # $ & etc.
+GAS_SECRET="xK9#mP2$vL5@qR8&tN4!bW7*yZ1%cJ6^hF3"
+GAS_WEBAPP_URL=https://script.google.com/macros/s/AKfycbwGvk3BjMOz8Jrh37ucE_c-IlX0Tcgr4A9p8S60ttHUhF-Y6XAYQm_SiLEryoACYTpT8g/exec

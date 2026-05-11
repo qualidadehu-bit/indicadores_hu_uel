@@ -13,8 +13,10 @@ Frontend em **React + Vite** que fala com um **Cloudflare Worker**, que por sua 
 1. Copie `.env.example` para `.env` ou `.env.local` e defina:
 
    ```bash
-   VITE_WORKER_URL=http://localhost:8787
+   VITE_WORKER_URL=http://127.0.0.1:8787
    ```
+
+   Se `VITE_WORKER_URL` estiver vazio, o frontend usa **`http://127.0.0.1:8787`**. Opcional: `VITE_GAS_SECRET` (só debug local — envia `X-GAS-Secret`; exposto no browser; prefira `GAS_SECRET` no Worker).
 
    Em produção, use a URL pública do Worker (por exemplo `https://indicadores-hu-api.<subdomain>.workers.dev`).
 
@@ -39,6 +41,19 @@ Frontend em **React + Vite** que fala com um **Cloudflare Worker**, que por sua 
 **Stack completa em desenvolvimento local:** use **dois terminais** — não há script `dev:full` para não adicionar dependências só para paralelismo; em um terminal rode `npm run cf:dev` (ou `worker:dev`), em outro `npm run dev`. No `.env`, `VITE_WORKER_URL` deve ser a URL/porta que o Wrangler mostrar (ex.: `http://127.0.0.1:8787` ou `:8788` se a 8787 estiver ocupada).
 
 Fluxo alternativo: só `npm run dev` com `VITE_WORKER_URL` apontando para o Worker já publicado na Cloudflare (`*.workers.dev`).
+
+### Erro: `Worker misconfigured: GAS_WEBAPP_URL missing, or GAS_SECRET missing`
+
+O Worker **indicadores-hu-api** precisa das duas variáveis no **mesmo** deploy que você está chamando:
+
+| Onde | O quê |
+|------|--------|
+| **Cloudflare** → Workers → **indicadores-hu-api** → Settings → Variables and Secrets | **`GAS_WEBAPP_URL`** (texto) = URL `/exec` do Web App |
+| **Mesmo lugar** | **`GAS_SECRET`** (tipo *Secret*) = mesmo valor que **`API_SECRET`** no Apps Script |
+
+Se você tirou **`VITE_GAS_SECRET`** do `.env` para evitar CORS, o navegador **não** manda mais `X-GAS-Secret` — aí o **`GAS_SECRET` obrigatoriamente** tem que existir na Cloudflare (não basta estar só em `worker/.dev.vars` local).
+
+Variáveis em outro Worker (ex.: nome diferente) **não** contam para o `indicadores-hu-api`.
 
 ## Estrutura útil
 

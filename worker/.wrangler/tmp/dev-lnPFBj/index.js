@@ -1,7 +1,7 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-// .wrangler/tmp/bundle-KmI7Ac/checked-fetch.js
+// .wrangler/tmp/bundle-yImdPw/checked-fetch.js
 var urls = /* @__PURE__ */ new Set();
 function checkURL(request, init) {
   const url = request instanceof URL ? request : new URL(
@@ -31,7 +31,8 @@ globalThis.fetch = new Proxy(globalThis.fetch, {
 var CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Accept",
+  // Inclui casing que o fetch do browser costuma mandar no preflight (x-gas-secret)
+  "Access-Control-Allow-Headers": "Content-Type, Accept, X-GAS-Secret, x-gas-secret",
   "Access-Control-Max-Age": "86400"
 };
 function jsonResponse(body, status = 200) {
@@ -53,12 +54,34 @@ var src_default = {
     if (request.method === "GET" && url.pathname === "/health") {
       return jsonResponse({ ok: true, service: "indicadores-hu-api" });
     }
+    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "")) {
+      return jsonResponse({
+        ok: true,
+        service: "indicadores-hu-api",
+        message: "API do Worker. O frontend React roda separado: npm run dev (ex. http://localhost:5173). Teste GET /health; dados via POST /api.",
+        endpoints: { health: "GET /health", api: "POST /api" }
+      });
+    }
     if (request.method !== "POST" || url.pathname !== "/api") {
       return jsonResponse({ ok: false, error: "Not found" }, 404);
     }
-    if (!env.GAS_WEBAPP_URL || !env.GAS_SECRET) {
+    const headerGasSecret = request.headers.get("X-GAS-Secret")?.trim() || "";
+    const gasSecret = (env.GAS_SECRET || headerGasSecret).trim();
+    const hasWebappUrl = !!(env.GAS_WEBAPP_URL && String(env.GAS_WEBAPP_URL).trim());
+    const hasWorkerSecret = !!(env.GAS_SECRET && String(env.GAS_SECRET).trim());
+    const hasHeaderSecret = !!headerGasSecret;
+    if (!hasWebappUrl || !gasSecret) {
       return jsonResponse(
-        { ok: false, error: "Worker misconfigured: GAS_WEBAPP_URL or GAS_SECRET missing" },
+        {
+          ok: false,
+          error: "Worker misconfigured: GAS_WEBAPP_URL missing, or GAS_SECRET missing (set in Worker env or send X-GAS-Secret for local debug only)",
+          detail: {
+            GAS_WEBAPP_URL_configured: hasWebappUrl,
+            GAS_SECRET_on_worker: hasWorkerSecret,
+            X_GAS_Secret_header_present: hasHeaderSecret,
+            hint: "Cloudflare: Workers \u2192 indicadores-hu-api \u2192 Settings \u2192 Variables (GAS_WEBAPP_URL + secret GAS_SECRET). Local: worker/.dev.vars. Ou defina VITE_GAS_SECRET no .env do Vite (s\xF3 debug)."
+          }
+        },
         500
       );
     }
@@ -68,9 +91,10 @@ var src_default = {
     } catch {
       return jsonResponse({ ok: false, error: "Invalid JSON body" }, 400);
     }
+    const { _gasSecret: _drop, ...rest } = payload;
     const forwardBody = JSON.stringify({
-      ...payload,
-      _gasSecret: env.GAS_SECRET
+      ...rest,
+      _gasSecret: gasSecret
     });
     try {
       const gasRes = await fetch(env.GAS_WEBAPP_URL, {
@@ -152,7 +176,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-KmI7Ac/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-yImdPw/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -184,7 +208,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-KmI7Ac/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-yImdPw/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

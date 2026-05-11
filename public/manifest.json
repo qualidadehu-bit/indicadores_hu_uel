@@ -1,0 +1,8 @@
+{
+  "name": "Gestão à Vista — Indicadores HU",
+  "short_name": "Indicadores HU",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f766e"
+}

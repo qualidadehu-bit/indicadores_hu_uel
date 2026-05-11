@@ -5,4 +5,4 @@ compatibility_date = "2024-05-01"
 # Defina GAS_WEBAPP_URL aqui ou via painel Cloudflare (Settings → Variables).
 # Segredo compartilhado Worker ↔ GAS: wrangler secret put GAS_SECRET
 [vars]
-# GAS_WEBAPP_URL = "https://script.google.com/macros/s/YOUR_DEPLOYMENT/exec"
+# GAS_WEBAPP_URL = "https://script.google.com/macros/s/SEU_DEPLOY/exec"

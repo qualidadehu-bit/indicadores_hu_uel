@@ -6,7 +6,8 @@ export interface Env {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+  // Inclui casing que o fetch do browser costuma mandar no preflight (x-gas-secret)
+  'Access-Control-Allow-Headers': 'Content-Type, Accept, X-GAS-Secret, x-gas-secret',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -32,13 +33,41 @@ export default {
       return jsonResponse({ ok: true, service: 'indicadores-hu-api' });
     }
 
+    // Raiz: evita 404 ao abrir http://127.0.0.1:8787/ no navegador (não é o app React)
+    if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
+      return jsonResponse({
+        ok: true,
+        service: 'indicadores-hu-api',
+        message:
+          'API do Worker. O frontend React roda separado: npm run dev (ex. http://localhost:5173). Teste GET /health; dados via POST /api.',
+        endpoints: { health: 'GET /health', api: 'POST /api' },
+      });
+    }
+
     if (request.method !== 'POST' || url.pathname !== '/api') {
       return jsonResponse({ ok: false, error: 'Not found' }, 404);
     }
 
-    if (!env.GAS_WEBAPP_URL || !env.GAS_SECRET) {
+    const headerGasSecret = request.headers.get('X-GAS-Secret')?.trim() || '';
+    const gasSecret = (env.GAS_SECRET || headerGasSecret).trim();
+    const hasWebappUrl = !!(env.GAS_WEBAPP_URL && String(env.GAS_WEBAPP_URL).trim());
+    const hasWorkerSecret = !!(env.GAS_SECRET && String(env.GAS_SECRET).trim());
+    const hasHeaderSecret = !!headerGasSecret;
+
+    if (!hasWebappUrl || !gasSecret) {
       return jsonResponse(
-        { ok: false, error: 'Worker misconfigured: GAS_WEBAPP_URL or GAS_SECRET missing' },
+        {
+          ok: false,
+          error:
+            'Worker misconfigured: GAS_WEBAPP_URL missing, or GAS_SECRET missing (set in Worker env or send X-GAS-Secret for local debug only)',
+          detail: {
+            GAS_WEBAPP_URL_configured: hasWebappUrl,
+            GAS_SECRET_on_worker: hasWorkerSecret,
+            X_GAS_Secret_header_present: hasHeaderSecret,
+            hint:
+              'Cloudflare: Workers → indicadores-hu-api → Settings → Variables (GAS_WEBAPP_URL + secret GAS_SECRET). Local: worker/.dev.vars. Ou defina VITE_GAS_SECRET no .env do Vite (só debug).',
+          },
+        },
         500
       );
     }
@@ -50,9 +79,10 @@ export default {
       return jsonResponse({ ok: false, error: 'Invalid JSON body' }, 400);
     }
 
+    const { _gasSecret: _drop, ...rest } = payload;
     const forwardBody = JSON.stringify({
-      ...payload,
-      _gasSecret: env.GAS_SECRET,
+      ...rest,
+      _gasSecret: gasSecret,
     });
 
     try {
