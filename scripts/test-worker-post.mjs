@@ -8,7 +8,7 @@
  *   node scripts/test-worker-post.mjs --login suaSenhaEscritorio
  *
  * Sobre o "segredo" (GAS_SECRET / API_SECRET):
- *   O Worker lê GAS_SECRET de worker/.dev.vars (local) ou do painel Cloudflare (produção)
+ *   O Worker lê GAS_SECRET de .dev.vars na raiz (local) ou do painel Cloudflare (produção)
  *   e injeta no JSON ao chamar o Google Apps Script. Este script NÃO envia esse segredo no
  *   corpo da requisição para o Worker — é o comportamento correto do app.
  *

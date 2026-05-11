@@ -18,7 +18,7 @@ Frontend em **React + Vite** que fala com um **Cloudflare Worker**, que por sua 
 
    Se `VITE_WORKER_URL` estiver vazio, o frontend usa **`http://127.0.0.1:8787`**. Opcional: `VITE_GAS_SECRET` (só debug local — envia `X-GAS-Secret`; exposto no browser; prefira `GAS_SECRET` no Worker).
 
-   Em produção, use a URL pública do Worker (por exemplo `https://indicadores-hu-api.<subdomain>.workers.dev`).
+   Em produção, use a URL pública do Worker (ex.: `https://dashboardhu.qualidade-hu.workers.dev`, conforme o `name` em `wrangler.toml`).
 
 2. Worker — copie **`.dev.vars.example`** para **`.dev.vars`** na **raiz** do projeto (ao lado de `wrangler.toml`) e preencha:
 
@@ -44,16 +44,16 @@ Fluxo alternativo: só `npm run dev` com `VITE_WORKER_URL` apontando para o Work
 
 ### Erro: `Worker misconfigured: GAS_WEBAPP_URL missing, or GAS_SECRET missing`
 
-O Worker **indicadores-hu-api** precisa das duas variáveis no **mesmo** deploy que você está chamando:
+O Worker **`dashboardhu`** (nome em `wrangler.toml`) precisa das duas variáveis no **mesmo** deploy que você está chamando:
 
 | Onde | O quê |
 |------|--------|
-| **Cloudflare** → Workers → **indicadores-hu-api** → Settings → Variables and Secrets | **`GAS_WEBAPP_URL`** (texto) = URL `/exec` do Web App |
+| **Cloudflare** → Workers → **dashboardhu** → Settings → Variables and Secrets | **`GAS_WEBAPP_URL`** (texto) = URL `/exec` do Web App (pode estar também em `[vars]` no `wrangler.toml`) |
 | **Mesmo lugar** | **`GAS_SECRET`** (tipo *Secret*) = mesmo valor que **`API_SECRET`** no Apps Script |
 
 Se você tirou **`VITE_GAS_SECRET`** do `.env` para evitar CORS, o navegador **não** manda mais `X-GAS-Secret` — aí o **`GAS_SECRET` obrigatoriamente** tem que existir na Cloudflare (não basta estar só em **`.dev.vars`** na raiz para deploy local).
 
-Variáveis em outro Worker (ex.: nome diferente) **não** contam para o `indicadores-hu-api`.
+Variáveis em outro Worker (nome diferente de **`dashboardhu`**) **não** entram neste deploy.
 
 ## Estrutura útil
 

@@ -1,9 +1,8 @@
-# Worker na raiz do repo — permite `npx wrangler deploy` sem --config
-name = "indicadores-hu-api"
+# Worker — `main` aponta para o código em worker/src/
+name = "dashboardhu"
 main = "worker/src/index.ts"
-compatibility_date = "2024-05-01"
+compatibility_date = "2024-05-11"
 
-# GAS_WEBAPP_URL: painel Cloudflare ou [vars] abaixo (não commitar segredos)
-# GAS_SECRET: wrangler secret put GAS_SECRET  OU  .dev.vars local (ver .dev.vars.example)
+# Variáveis públicas (ficam no repositório; não coloque GAS_SECRET aqui — use wrangler secret ou .dev.vars)
 [vars]
-# GAS_WEBAPP_URL = "https://script.google.com/macros/s/SEU_DEPLOY/exec"
+GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwGvk3BjMOz8Jrh37ucE_c-IlX0Tcgr4A9p8S60ttHUhF-Y6XAYQm_SiLEryoACYTpT8g/exec"

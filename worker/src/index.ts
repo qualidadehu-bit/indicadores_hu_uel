@@ -30,14 +30,14 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === 'GET' && url.pathname === '/health') {
-      return jsonResponse({ ok: true, service: 'indicadores-hu-api' });
+      return jsonResponse({ ok: true, service: 'dashboardhu' });
     }
 
     // Raiz: evita 404 ao abrir http://127.0.0.1:8787/ no navegador (não é o app React)
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
       return jsonResponse({
         ok: true,
-        service: 'indicadores-hu-api',
+        service: 'dashboardhu',
         message:
           'API do Worker. O frontend React roda separado: npm run dev (ex. http://localhost:5173). Teste GET /health; dados via POST /api.',
         endpoints: { health: 'GET /health', api: 'POST /api' },
@@ -65,7 +65,7 @@ export default {
             GAS_SECRET_on_worker: hasWorkerSecret,
             X_GAS_Secret_header_present: hasHeaderSecret,
             hint:
-              'Cloudflare: Workers → indicadores-hu-api → Settings → Variables (GAS_WEBAPP_URL + secret GAS_SECRET). Local: worker/.dev.vars. Ou defina VITE_GAS_SECRET no .env do Vite (só debug).',
+              'Cloudflare: Workers → dashboardhu → Settings → Variables (GAS_WEBAPP_URL + secret GAS_SECRET). Local: .dev.vars na raiz. Ou VITE_GAS_SECRET no .env (só debug).',
           },
         },
         500
