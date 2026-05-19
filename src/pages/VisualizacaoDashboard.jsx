@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { api } from '@/api/apiClient';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, TrendingDown, AlertTriangle, CheckCircle2, ChevronLeft } from 'lucide-react';
@@ -6,19 +6,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Link } from 'react-router-dom';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
-} from 'recharts';
-import { MESES, MESES_COMPLETO, calcularStatusMeta, STATUS_META } from '@/lib/indicadores';
-import BadgeStatusMeta from '@/components/BadgeStatusMeta';
+import { MESES, MESES_COMPLETO, calcularStatusMeta, STATUS_META, buildAnosDisponiveis } from '@/lib/indicadores';
 import ProducaoCard from '@/components/dashboard/ProducaoCard';
 import MispCard from '@/components/dashboard/MispCard';
 import EventosAdversosCard from '@/components/dashboard/EventosAdversosCard';
-import LesaoPressaoCard from '@/components/dashboard/LesaoPressaoCard';
+import ModuloDashboardBundle from '@/components/dashboard/ModuloDashboardBundle';
+import { usesDashboardBundle } from '@/lib/moduloLayout';
 import IrasCard from '@/components/dashboard/IrasCard';
+import GenericModuloChartGrid from '@/components/dashboard/GenericModuloChartGrid';
+import {
+  divisaoNomeParaFiltroIndicadores,
+  filtrarIndicadoresPorDivisao,
+  filtrarIndicadoresPorSetorWhitelist,
+  indicadorIdsWhitelistSetor,
+} from '@/lib/indicadorDivisao';
+import { findModuloPorDashboardKind, getModuloDashboardKind } from '@/lib/moduloTipoUi';
 
-const COLORS = ['#2d7d46', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-const ANOS = [new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1];
+const ANOS = buildAnosDisponiveis();
 
 export default function VisualizacaoDashboard() {
   const [ano, setAno] = useState(new Date().getFullYear());
@@ -33,13 +37,32 @@ export default function VisualizacaoDashboard() {
   const { data: lancamentos = [] } = useQuery({ queryKey: ['lancamentos-pub', ano], queryFn: () => api.entities.Lancamento.filter({ ano }) });
   const { data: metas = [] } = useQuery({ queryKey: ['metas-pub', ano], queryFn: () => api.entities.Meta.filter({ ano }) });
 
+  const setorContextoId = setorSelecionado !== 'todos' ? setorSelecionado : null;
+
+  const divisaoFiltroInd = useMemo(
+    () => divisaoNomeParaFiltroIndicadores(setores, setorSelecionado, divisaoSelecionada),
+    [setores, setorSelecionado, divisaoSelecionada]
+  );
+  const setorContextoObj = useMemo(() => {
+    if (!setorContextoId) return null;
+    return setores.find((s) => String(s.id) === String(setorContextoId)) || null;
+  }, [setores, setorContextoId]);
+
+  const indicadoresAposDivisao = useMemo(
+    () => filtrarIndicadoresPorDivisao(indicadores, divisaoFiltroInd),
+    [indicadores, divisaoFiltroInd]
+  );
+  const indicadoresFiltrados = useMemo(
+    () => filtrarIndicadoresPorSetorWhitelist(indicadoresAposDivisao, setorContextoObj),
+    [indicadoresAposDivisao, setorContextoObj]
+  );
+
   // Agrupar setores por divisão
   const divisoes = [...new Set(setores.map(s => s.divisao))].sort();
   const setoresDaDivisao = divisaoSelecionada === 'todas'
     ? setores
     : setores.filter(s => s.divisao === divisaoSelecionada);
 
-  const setorContextoId = setorSelecionado !== 'todos' ? setorSelecionado : null;
   const setorParaGrafico = setorContextoId;
 
   const getLancamento = (indicadorId, sid, m) =>
@@ -57,10 +80,12 @@ export default function VisualizacaoDashboard() {
 
   const kpis = (() => {
     let ok = 0, atencao = 0, critico = 0, semDados = 0;
-    indicadores.forEach(ind => {
+    indicadoresFiltrados.forEach(ind => {
       const metaRec = getMeta(ind.id, setorContextoId);
       const lancRec = getLancamento(ind.id, setorContextoId, mes);
-      const status = calcularStatusMeta(lancRec?.valor, metaRec?.valor, ind.tipo_direcao_meta);
+      const direcao =
+        typeof ind.tipo_direcao_meta === 'string' ? ind.tipo_direcao_meta : undefined;
+      const status = calcularStatusMeta(lancRec?.valor, metaRec?.valor, direcao);
       if (status === STATUS_META.OK) ok++;
       else if (status === STATUS_META.ATENCAO) atencao++;
       else if (status === STATUS_META.CRITICO) critico++;
@@ -153,6 +178,12 @@ export default function VisualizacaoDashboard() {
           </div>
         )}
 
+        {setorContextoObj && indicadorIdsWhitelistSetor(setorContextoObj) && indicadoresFiltrados.length === 0 && (
+          <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+            Este setor tem lista restrita de indicadores e nenhum indicador aplicável ficou visível. Ajuste em Configuração → Divisões e Setores.
+          </div>
+        )}
+
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
@@ -178,34 +209,29 @@ export default function VisualizacaoDashboard() {
         </div>
 
         {/* Charts — identical logic to Dashboard.jsx */}
-        {indicadores.length === 0 ? (
+        {indicadoresFiltrados.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="py-16 text-center">
               <Activity className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground font-medium">Nenhum indicador configurado</p>
+              <p className="text-muted-foreground font-medium">
+                {indicadores.length === 0
+                  ? 'Nenhum indicador configurado'
+                  : indicadoresAposDivisao.length === 0
+                    ? 'Nenhum indicador para a divisão / filtro atual'
+                    : 'Nenhum indicador visível para este setor'}
+              </p>
             </CardContent>
           </Card>
         ) : (
           modulosFiltrados.map(modulo => {
-            const indsDoModulo = indicadores.filter(i => i.modulo_id === modulo.id);
+            const indsDoModulo = indicadoresFiltrados.filter(i => i.modulo_id === modulo.id);
             if (indsDoModulo.length === 0) return null;
 
-            if (modulo.nome === 'Lesão por Pressão (LP)') {
-              return (
-                <LesaoPressaoCard
-                  key={modulo.id}
-                  ano={ano}
-                  mes={mes}
-                  indicadores={indsDoModulo}
-                  lancamentos={lancamentos}
-                  setorId={setorParaGrafico}
-                />
-              );
-            }
+            const dashboardKind = getModuloDashboardKind(modulo);
 
-            if (modulo.nome === 'IRAS') {
-              const moduloNr32 = modulos.find(m => m.nome === 'NR32');
-              const indsNr32 = moduloNr32 ? indicadores.filter(i => i.modulo_id === moduloNr32.id) : [];
+            if (dashboardKind === 'iras') {
+              const moduloNr32 = findModuloPorDashboardKind(modulos, 'nr32');
+              const indsNr32 = moduloNr32 ? indicadoresFiltrados.filter(i => i.modulo_id === moduloNr32.id) : [];
               return (
                 <IrasCard
                   key={modulo.id}
@@ -215,11 +241,12 @@ export default function VisualizacaoDashboard() {
                   lancamentos={lancamentos}
                   setorId={setorParaGrafico}
                   indicadoresNr32={indsNr32}
+                  moduloId={modulo.id}
                 />
               );
             }
 
-            if (modulo.nome === 'Eventos Adversos') {
+            if (dashboardKind === 'eventos_adversos') {
               return (
                 <EventosAdversosCard
                   key={modulo.id}
@@ -228,13 +255,14 @@ export default function VisualizacaoDashboard() {
                   indicadores={indsDoModulo}
                   lancamentos={lancamentos}
                   setorId={setorParaGrafico}
+                  moduloId={modulo.id}
                 />
               );
             }
 
-            if (modulo.nome === 'NR32') return null;
+            if (dashboardKind === 'nr32') return null;
 
-            if (modulo.nome === 'MISP') {
+            if (dashboardKind === 'misp') {
               return (
                 <MispCard
                   key={modulo.id}
@@ -243,20 +271,39 @@ export default function VisualizacaoDashboard() {
                   indicadores={indsDoModulo}
                   lancamentos={lancamentos}
                   setorId={setorParaGrafico}
+                  moduloId={modulo.id}
+                  modulo={modulo}
                 />
               );
             }
 
-            if (modulo.nome === 'Produção') {
+            if (dashboardKind === 'producao') {
               return (
                 <ProducaoCard
                   key={modulo.id}
                   ano={ano}
                   mes={mes}
-                  indicadores={indicadores}
+                  indicadores={indicadoresFiltrados}
                   lancamentos={lancamentos}
                   metas={metas}
                   setorId={setorParaGrafico}
+                  moduloId={modulo.id}
+                />
+              );
+            }
+
+            if (usesDashboardBundle(modulo)) {
+              return (
+                <ModuloDashboardBundle
+                  key={modulo.id}
+                  modulo={modulo}
+                  indicadores={indsDoModulo}
+                  lancamentos={lancamentos}
+                  metas={metas}
+                  ano={ano}
+                  mes={mes}
+                  setorId={setorParaGrafico}
+                  moduloId={modulo.id}
                 />
               );
             }
@@ -270,55 +317,16 @@ export default function VisualizacaoDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-4">
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    {indsDoModulo.map((ind, idx) => {
-                      const chartData = buildChartData(ind.id, setorParaGrafico);
-                      const metaRec = getMeta(ind.id, setorParaGrafico);
-                      const lancAtual = getLancamento(ind.id, setorParaGrafico, mes);
-                      const status = calcularStatusMeta(lancAtual?.valor, metaRec?.valor, ind.tipo_direcao_meta);
-
-                      return (
-                        <div key={ind.id} className="space-y-2">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div>
-                              <p className="text-sm font-medium">{ind.label || ind.nome}</p>
-                              <p className="text-xs text-muted-foreground">{ind.unidade}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {lancAtual?.valor !== undefined && (
-                                <span className="text-lg font-jakarta font-bold">
-                                  {lancAtual.valor}{ind.unidade?.startsWith('%') ? '%' : ''}
-                                </span>
-                              )}
-                              <BadgeStatusMeta status={status} />
-                            </div>
-                          </div>
-                          <ResponsiveContainer width="100%" height={160}>
-                            <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                              <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
-                              <YAxis tick={{ fontSize: 10 }} />
-                              <Tooltip
-                                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                                formatter={(v, name) => [v !== null ? v : '-', name === 'valor' ? ind.label || ind.nome : 'Meta']}
-                              />
-                              {metaRec?.valor && (
-                                <ReferenceLine y={metaRec.valor} stroke="#f59e0b" strokeDasharray="4 4"
-                                  label={{ value: 'Meta', fontSize: 10, fill: '#f59e0b' }} />
-                              )}
-                              <Line type="monotone" dataKey="valor" stroke={COLORS[idx % COLORS.length]}
-                                strokeWidth={2} dot={{ r: 3 }} connectNulls={false} name={ind.label || ind.nome} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                          {lancAtual?.nota && (
-                            <p className="text-xs text-muted-foreground italic bg-secondary/40 rounded px-2 py-1">
-                              📝 {lancAtual.nota}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <GenericModuloChartGrid
+                    modulo={modulo}
+                    indsDoModulo={indsDoModulo}
+                    setorParaGrafico={setorParaGrafico}
+                    mesAtual={mes}
+                    anoAtual={ano}
+                    buildChartData={buildChartData}
+                    getMeta={getMeta}
+                    getLancamento={getLancamento}
+                  />
                 </CardContent>
               </Card>
             );

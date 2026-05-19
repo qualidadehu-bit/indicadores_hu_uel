@@ -103,3 +103,24 @@ export const MESES_COMPLETO = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
 ];
+
+/** Ano mínimo padrão nos selects (histórico legado do hospital). */
+export const ANO_SELECT_MIN = 2020;
+
+/** Quantos anos à frente do ano civil atual incluir nos selects. */
+export const ANO_SELECT_FUTURE = 10;
+
+/**
+ * Lista de anos para selects (lançamento, dashboard, comparação, PDF).
+ * @param {{ from?: number, future?: number, referenceYear?: number }} [opts]
+ * @returns {number[]}
+ */
+export function buildAnosDisponiveis(opts = {}) {
+  const from = opts.from ?? ANO_SELECT_MIN;
+  const future = opts.future ?? ANO_SELECT_FUTURE;
+  const ref = opts.referenceYear ?? new Date().getFullYear();
+  const end = ref + future;
+  const anos = [];
+  for (let y = from; y <= end; y++) anos.push(y);
+  return anos;
+}

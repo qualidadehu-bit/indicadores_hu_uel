@@ -1,3 +1,5 @@
+import { normalizeEntityResponse } from '@/lib/sheetsEntityNormalize';
+
 /**
  * Cliente HTTP direto (fetch) → Cloudflare Worker POST /api → Google Apps Script.
  *
@@ -66,10 +68,16 @@ async function callApi(body) {
 
 function entityApi(entity) {
   return {
-    list: () => callApi({ kind: 'entity', entity, operation: 'list' }).then((r) => r.data),
+    list: () =>
+      callApi({ kind: 'entity', entity, operation: 'list' }).then((r) => normalizeEntityResponse(entity, r.data)),
     filter: (filter) =>
-      callApi({ kind: 'entity', entity, operation: 'filter', filter: filter || {} }).then((r) => r.data),
-    create: (record) => callApi({ kind: 'entity', entity, operation: 'create', record }).then((r) => r.data),
+      callApi({ kind: 'entity', entity, operation: 'filter', filter: filter || {} }).then((r) =>
+        normalizeEntityResponse(entity, r.data)
+      ),
+    create: (record) =>
+      callApi({ kind: 'entity', entity, operation: 'create', record }).then((r) =>
+        normalizeEntityResponse(entity, r.data)
+      ),
     update: (id, record) =>
       callApi({ kind: 'entity', entity, operation: 'update', id, record }).then((r) => r.data),
     delete: (id) => callApi({ kind: 'entity', entity, operation: 'delete', id }).then((r) => r.data),

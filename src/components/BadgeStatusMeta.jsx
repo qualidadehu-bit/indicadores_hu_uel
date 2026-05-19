@@ -9,6 +9,12 @@ const ICONS = {
   [STATUS_META.SEM_DADOS]: HelpCircle,
 };
 
+/**
+ * @param {Object} props
+ * @param {string} props.status
+ * @param {string} [props.className]
+ * @param {'sm' | 'md'} [props.size]
+ */
 export default function BadgeStatusMeta({ status, className, size = 'sm' }) {
   const config = getStatusConfig(status);
   const Icon = ICONS[status] || HelpCircle;

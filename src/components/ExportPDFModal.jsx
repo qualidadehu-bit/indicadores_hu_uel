@@ -6,11 +6,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FileDown, Loader2, CheckSquare, Square } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { drawPdfCover, loadPdfCoverAssets } from '@/lib/pdfCover';
+import { filtrarIndicadoresPorSetorWhitelist } from '@/lib/indicadorDivisao';
+import { getModuloDashboardKind } from '@/lib/moduloTipoUi';
+import { buildAnosDisponiveis } from '@/lib/indicadores';
 
 const MESES_COMPLETO = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 // ---- PDF helpers ----
 const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const PDF_THEME = {
+  primary: [27, 120, 27],
+  primaryText: [255, 255, 255],
+  secondaryText: [212, 245, 212],
+  mutedText: [165, 225, 165],
+  tableHeaderBg: [232, 245, 232],
+  tableHeaderText: [25, 90, 25],
+  rowBg: [248, 253, 248],
+};
 
 function calcStatus(valor, metaVal, direcao) {
   if (valor === null || valor === undefined || metaVal === null || metaVal === undefined) {
@@ -36,24 +49,24 @@ function statusColor(s) {
 }
 
 function drawModuleHeader(doc, nome, periodLabel) {
-  doc.setFillColor(10, 45, 94);
+  doc.setFillColor(...PDF_THEME.primary);
   doc.rect(0, 0, 210, 22, 'F');
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(255, 255, 255);
+  doc.setTextColor(...PDF_THEME.primaryText);
   doc.text(nome, 14, 10);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
-  doc.setTextColor(160, 200, 255);
+  doc.setTextColor(...PDF_THEME.secondaryText);
   doc.text(`Período: ${periodLabel}`, 14, 17);
 }
 
 function drawTableHeader(doc, y, tipo) {
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'bold');
-  doc.setFillColor(230, 238, 255);
+  doc.setFillColor(...PDF_THEME.tableHeaderBg);
   doc.rect(14, y, 182, 7, 'F');
-  doc.setTextColor(30, 50, 100);
+  doc.setTextColor(...PDF_THEME.tableHeaderText);
   doc.text('INDICADOR', 16, y + 5);
   doc.text('UNIDADE', 88, y + 5);
   if (tipo === 'mensal') {
@@ -69,7 +82,7 @@ function drawTableHeader(doc, y, tipo) {
 function drawTableRow(doc, y, ind, lancamentos, metas, tipo, mes, ano, idx, setorId) {
   const rowH = 7;
   if (idx % 2 === 0) {
-    doc.setFillColor(248, 250, 255);
+    doc.setFillColor(...PDF_THEME.rowBg);
     doc.rect(14, y - 1, 182, rowH, 'F');
   }
   doc.setFont('helvetica', 'normal');
@@ -126,58 +139,142 @@ function drawTableRow(doc, y, ind, lancamentos, metas, tipo, mes, ano, idx, seto
   }
 }
 
+function findChartCaptureElement(moduloId) {
+  const root = document.querySelector(`[data-modulo-id="${moduloId}"]`);
+  if (!(root instanceof HTMLElement)) return null;
+  const scoped = root.querySelector('[data-pdf-export]');
+  return scoped instanceof HTMLElement ? scoped : root;
+}
+
 // ---- Capture live dashboard cards from the DOM ----
-async function captureDashboardCards(modulosSelecionados) {
+async function captureDashboardCards(modulosSelecionados, modulos) {
+  const modById = new Map(modulos.map((m) => [m.id, m]));
   const canvases = {};
   for (const moduloId of modulosSelecionados) {
-    const el = document.querySelector(`[data-modulo-id="${moduloId}"]`);
+    const el = findChartCaptureElement(moduloId);
     if (!el) continue;
+    const isIras = getModuloDashboardKind(modById.get(moduloId)) === 'iras';
     try {
+      el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+      await new Promise((r) => setTimeout(r, 80));
       const canvas = await html2canvas(el, {
-        scale: 2,
+        scale: isIras ? 3 : 2,
         backgroundColor: '#ffffff',
         useCORS: true,
         logging: false,
         allowTaint: true,
       });
       canvases[moduloId] = canvas.toDataURL('image/png');
-    } catch (e) {
+    } catch {
       // skip on error
     }
   }
   return canvases;
 }
 
+const CHART_MARGIN_X = 14;
+const CHART_MAX_W_DEFAULT = 182;
+const IRAS_CHART_X = 7;
+const IRAS_CHART_MAX_W = 196;
+
+/** Escala imagem para caber em maxW × maxH mantendo proporção. */
+function fitImageToBox(naturalW, naturalH, maxW, maxH) {
+  if (!naturalW || !naturalH) return { w: maxW, h: maxH };
+  let w = maxW;
+  let h = (naturalH / naturalW) * w;
+  if (h > maxH) {
+    h = maxH;
+    w = (naturalW / naturalH) * h;
+  }
+  return { w, h };
+}
+
+/** IRAS: largura fixa em maxW; altura proporcional (pode exceder maxH — fatiar depois). */
+function fitImageWidthFirst(naturalW, naturalH, maxW) {
+  if (!naturalW || !naturalH) return { w: maxW, h: maxW };
+  const w = maxW;
+  const h = (naturalH / naturalW) * w;
+  return { w, h };
+}
+
+function loadImageElement(imgSrc) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = imgSrc;
+  });
+}
+
+/** Desenha fatias verticais da imagem em páginas seguintes, mantendo largura maxW. */
+async function addImageSlicedVertical(doc, img, imgSrc, chartX, chartY, maxW, maxHPerPage, onExtraPage, continuationY) {
+  const { w: drawW, h: drawH } = fitImageWidthFirst(img.naturalWidth, img.naturalHeight, maxW);
+  if (drawH <= maxHPerPage) {
+    doc.addImage(imgSrc, 'PNG', chartX, chartY, drawW, drawH);
+    return;
+  }
+
+  const pxPerMm = img.naturalWidth / drawW;
+  const nextPageY = continuationY ?? chartY;
+  let srcYpx = 0;
+  let pageY = chartY;
+  let remainingMm = drawH;
+
+  while (remainingMm > 0.5) {
+    const sliceHmm = Math.min(maxHPerPage, remainingMm);
+    const sliceHpx = Math.min(
+      Math.round(sliceHmm * pxPerMm),
+      img.naturalHeight - srcYpx,
+    );
+    if (sliceHpx <= 0) break;
+
+    const actualSliceHmm = sliceHpx / pxPerMm;
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = sliceHpx;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(img, 0, srcYpx, img.naturalWidth, sliceHpx, 0, 0, img.naturalWidth, sliceHpx);
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', chartX, pageY, drawW, actualSliceHmm);
+    }
+
+    srcYpx += sliceHpx;
+    remainingMm -= actualSliceHmm;
+
+    if (remainingMm > 0.5) {
+      doc.addPage();
+      onExtraPage?.();
+      pageY = nextPageY;
+    }
+  }
+}
+
 // ---- Main PDF generator ----
 async function gerarPDF({ modulos, indicadores, lancamentos, metas, modulosSelecionados, tipo, mes, ano, conteudo = 'ambos', setorId }) {
   // First capture live charts from DOM
-  const chartCanvases = await captureDashboardCards(modulosSelecionados);
+  const chartCanvases = await captureDashboardCards(modulosSelecionados, modulos);
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const periodLabel = tipo === 'mensal' ? `${MESES_COMPLETO[mes - 1]}/${ano}` : `Anual ${ano}`;
+  const coverAssets = await loadPdfCoverAssets();
 
   // ---- Cover ----
-  doc.setFillColor(10, 45, 94);
-  doc.rect(0, 0, 210, 297, 'F');
-  doc.setFontSize(30);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(255, 255, 255);
-  doc.text('Relatório de', 20, 90);
-  doc.text('Indicadores', 20, 107);
-  doc.setFontSize(17);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(160, 200, 255);
-  doc.text(periodLabel, 20, 122);
-  doc.setFontSize(9);
-  doc.setTextColor(100, 140, 210);
   const modsNomes = modulos.filter(m => modulosSelecionados.includes(m.id)).map(m => m.nome).join(' · ');
-  const modsLines = doc.splitTextToSize(modsNomes, 170);
-  doc.text(modsLines, 20, 140);
-  doc.setFontSize(8);
-  doc.setTextColor(80, 120, 190);
-  doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, 20, 280);
+  drawPdfCover(doc, {
+    title: 'Relatório de Indicadores',
+    subtitle: periodLabel,
+    details: modsNomes,
+    generatedAt: `Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+    theme: PDF_THEME,
+    assets: coverAssets,
+  });
 
   const modsParaExportar = modulos.filter(m => modulosSelecionados.includes(m.id));
+  const FOOTER_TOP = 278;
+  const CHART_PAGE_TOP = 26;
+  const CHART_MAX_H_FULL_PAGE = FOOTER_TOP - CHART_PAGE_TOP;
+  const CHART_MIN_SPACE_MM = 40;
+  const CHART_AFTER_TABLE_GAP = 6;
 
   for (const modulo of modsParaExportar) {
     const inds = indicadores
@@ -187,43 +284,103 @@ async function gerarPDF({ modulos, indicadores, lancamentos, metas, modulosSelec
 
     const incluirTabela = conteudo === 'tabela' || conteudo === 'ambos';
     const incluirGrafico = conteudo === 'grafico' || conteudo === 'ambos';
+    const imgData = chartCanvases[modulo.id];
+    const fluxoAmbos = incluirTabela && incluirGrafico;
+    const isIras = getModuloDashboardKind(modulo) === 'iras';
 
-    // ---- TABLE PAGE ----
-    if (incluirTabela) {
-      doc.addPage();
-      drawModuleHeader(doc, modulo.nome, periodLabel);
-      let y = 30;
-
+    /** Desenha tabela a partir de y; devolve y final. */
+    const drawModuloTabela = (yStart) => {
+      let y = yStart;
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 50, 100);
+      doc.setTextColor(
+        PDF_THEME.tableHeaderText[0],
+        PDF_THEME.tableHeaderText[1],
+        PDF_THEME.tableHeaderText[2],
+      );
       doc.text('RESUMO DE INDICADORES', 14, y);
       y += 5;
       y = drawTableHeader(doc, y, tipo);
-
       for (let idx = 0; idx < inds.length; idx++) {
-        if (y > 272) { doc.addPage(); y = 14; }
+        if (y > 272) {
+          doc.addPage();
+          y = 14;
+        }
         y = drawTableRow(doc, y, inds[idx], lancamentos, metas, tipo, mes, ano, idx, setorId);
       }
-    }
+      return y;
+    };
 
-    // ---- CHART PAGE — use live DOM capture ----
-    if (incluirGrafico) {
-      const imgData = chartCanvases[modulo.id];
-      if (imgData) {
-        doc.addPage();
-        drawModuleHeader(doc, `${modulo.nome} — Visualização`, periodLabel);
+    const chartLayout = isIras
+      ? { chartX: IRAS_CHART_X, maxW: IRAS_CHART_MAX_W, widthFirst: true }
+      : { chartX: CHART_MARGIN_X, maxW: CHART_MAX_W_DEFAULT, widthFirst: false };
 
-        const img = new Image();
-        img.src = imgData;
-        await new Promise(resolve => { img.onload = resolve; });
-        const imgW = 182;
-        const imgH = (img.naturalHeight / img.naturalWidth) * imgW;
-        const maxH = 260;
-        const finalH = Math.min(imgH, maxH);
+    const redrawModuloHeader = () => drawModuleHeader(doc, modulo.nome, periodLabel);
 
-        doc.addImage(imgData, 'PNG', 14, 26, imgW, finalH);
+    const placeChartImage = async (imgSrc, chartY, maxH) => {
+      const img = await loadImageElement(imgSrc);
+      if (!img?.naturalWidth) return;
+
+      const { chartX, maxW, widthFirst } = chartLayout;
+      const safeMaxH = Math.max(10, maxH);
+
+      if (widthFirst) {
+        await addImageSlicedVertical(
+          doc,
+          img,
+          imgSrc,
+          chartX,
+          chartY,
+          maxW,
+          safeMaxH,
+          redrawModuloHeader,
+          CHART_PAGE_TOP,
+        );
+        return;
       }
+
+      const { w: drawW, h: drawH } = fitImageToBox(
+        img.naturalWidth,
+        img.naturalHeight,
+        maxW,
+        safeMaxH,
+      );
+      const x = chartX + (maxW - drawW) / 2;
+      doc.addImage(imgSrc, 'PNG', x, chartY, drawW, drawH);
+    };
+
+    if (fluxoAmbos) {
+      doc.addPage();
+      drawModuleHeader(doc, modulo.nome, periodLabel);
+      let y = drawModuloTabela(30);
+
+      if (imgData) {
+        let chartY = y + CHART_AFTER_TABLE_GAP;
+        let availableH = FOOTER_TOP - chartY;
+
+        if (isIras) {
+          doc.addPage();
+          redrawModuloHeader();
+          chartY = CHART_PAGE_TOP;
+          availableH = CHART_MAX_H_FULL_PAGE;
+        } else if (availableH < CHART_MIN_SPACE_MM) {
+          doc.addPage();
+          redrawModuloHeader();
+          chartY = CHART_PAGE_TOP;
+          availableH = FOOTER_TOP - chartY;
+        }
+
+        await placeChartImage(imgData, chartY, availableH);
+      }
+    } else if (incluirTabela) {
+      doc.addPage();
+      drawModuleHeader(doc, modulo.nome, periodLabel);
+      drawModuloTabela(30);
+    } else if (incluirGrafico && imgData) {
+      doc.addPage();
+      drawModuleHeader(doc, `${modulo.nome} — Visualização`, periodLabel);
+      const maxH = isIras ? CHART_MAX_H_FULL_PAGE : FOOTER_TOP - CHART_PAGE_TOP;
+      await placeChartImage(imgData, CHART_PAGE_TOP, maxH);
     }
   }
 
@@ -277,9 +434,11 @@ export default function ExportPDFModal({
   const handleExport = async () => {
     if (!exportSetorId) return;
     setLoading(true);
+    const exportSetor = setores.find((s) => String(s.id) === String(exportSetorId));
+    const indicadoresExport = filtrarIndicadoresPorSetorWhitelist(indicadores, exportSetor);
     await gerarPDF({
       modulos,
-      indicadores,
+      indicadores: indicadoresExport,
       lancamentos,
       metas,
       modulosSelecionados,
@@ -293,7 +452,7 @@ export default function ExportPDFModal({
     onClose();
   };
 
-  const anos = [anoAtual - 1, anoAtual, anoAtual + 1];
+  const anos = buildAnosDisponiveis({ referenceYear: anoAtual });
 
   return (
     <Dialog open={open} onOpenChange={v => !v && !loading && onClose()}>

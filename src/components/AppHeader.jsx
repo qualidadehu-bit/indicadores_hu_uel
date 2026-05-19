@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, BarChart3, ChevronDown, ClipboardList, Eye, LayoutDashboard, Settings, Menu, X, LogOut } from 'lucide-react';
+import { Activity, BarChart3, ClipboardList, Eye, LayoutDashboard, Settings, Menu, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { gestorPodeAcessarConfiguracao } from '@/lib/gestorNivelAcesso';
+import { buildAnosDisponiveis } from '@/lib/indicadores';
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -13,12 +16,17 @@ const NAV_ITEMS = [
   { path: '/configuracao', label: 'Configuração', icon: Settings },
 ];
 
-const ANOS = [2022, 2023, 2024, 2025, 2026];
+const ANOS = buildAnosDisponiveis();
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user } = useAuth();
+  const navItems = useMemo(() => {
+    if (gestorPodeAcessarConfiguracao(user)) return NAV_ITEMS;
+    return NAV_ITEMS.filter((item) => item.path !== '/configuracao');
+  }, [user]);
 
   return (
     <header className="sticky top-0 z-50 bg-sidebar text-sidebar-foreground shadow-lg">
@@ -37,7 +45,7 @@ export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
 
           {/* Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-1">
-            {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+            {navItems.map(({ path, label, icon: Icon }) => (
               <Link
                 key={path}
                 to={path}
@@ -102,7 +110,7 @@ export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
         {/* Mobile Nav */}
         {mobileOpen && (
           <div className="lg:hidden pb-3 border-t border-sidebar-border pt-2 flex flex-col gap-1">
-            {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+            {navItems.map(({ path, label, icon: Icon }) => (
               <Link
                 key={path}
                 to={path}

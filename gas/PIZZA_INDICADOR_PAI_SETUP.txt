@@ -1,0 +1,89 @@
+================================================================================
+Caminho 1 — Um único pizza no bundle (indicador PAI + pizza_fatias)
+================================================================================
+No painel com layout_dashboard = bundle_kpi_tabela, a secção "Distribuição no
+mês (pizza)" desenha UM gráfico pizza por cada indicador cujo tipo efetivo é
+"pizza". Para um único disco com várias faixas: um indicador PAI (pizza +
+pizza_fatias) e os indicadores de contagem passam a NÃO ser pizza.
+
+Vocabulário tipo_grafico (planilha / API): linha | barra | area | radar | pizza
+NÃO use "kpi" ou "numero" — não existem no app; são tratados como "linha".
+Para os filhos use explicitamente: linha (ou barra | area | radar).
+
+================================================================================
+PASSO 1 — Novo indicador PAI (aba indicador, nova linha)
+================================================================================
+- id            = novo UUID (ou o padrão que usam na coluna id)
+- modulo_id     = id do módulo (ex.: óbitos por faixa etária)
+- modulo_nome   = opcional; pode espelhar o nome do módulo
+- nome / label  = ex.: "Distribuição por faixa etária"
+- unidade       = ex.: nº
+- tipo_grafico  = pizza
+- pizza_fatias  = JSON da PASSO 2 (uma célula, sem quebras de linha)
+- ordem         = ex.: 0 (para aparecer primeiro no módulo)
+- ativo         = TRUE / 1 (conforme convenção da planilha)
+- pizza_fatias nos FILHOS = vazio
+
+O pizza lê lançamentos dos indicadores referidos em pizza_fatias (filhos), no
+mês e setor ativos no dashboard. O PAI pode não ter linhas em "lancamento";
+o cartão KPI do pai pode mostrar "—" (opcional: gravar soma no id do pai).
+
+================================================================================
+PASSO 2 — JSON do campo pizza_fatias (coluna do indicador PAI)
+================================================================================
+Substitua APENAS os dois UUIDs pelos valores da coluna `id` dos dois indicadores
+de contagem (13–19 e 20–39), na aba indicador.
+
+Formato (uma linha na célula):
+
+[{"label":"13 a 19 anos","indicador_id":"<UUID_INDICADOR_13_19>"},{"label":"20 a 39 anos","indicador_id":"<UUID_INDICADOR_20_39>"}]
+
+Exemplo só com formato (troque pelos ids reais dos dois indicadores de contagem):
+
+[{"label":"13 a 19 anos","indicador_id":"aaaaaaaa-bbbb-cccc-dddd-111111111111"},{"label":"20 a 39 anos","indicador_id":"aaaaaaaa-bbbb-cccc-dddd-222222222222"}]
+
+Regras:
+- Chaves: "label" e "indicador_id" (aceita "indicadorId" mas prefira indicador_id).
+- Não repita o mesmo indicador_id em duas fatias.
+
+================================================================================
+PASSO 3 — Indicadores antigos (13–19 e 20–39), mesma aba indicador: EDITAR
+================================================================================
+- tipo_grafico  = linha   (NÃO "kpi" nem "numero")
+- pizza_fatias  = célula vazia
+- modulo_id / lançamentos: mantêm-se; os valores continuam a ser lançados
+  nestes dois ids (são a fonte de cada fatia do pai).
+
+Efeito no bundle: deixam de aparecer na secção pizza; podem aparecer no
+gráfico "Tendência (ano)" (linhas) se o módulo tiver outros indicadores linha.
+
+================================================================================
+PASSO extra — Setor com coluna indicador_ids preenchida
+================================================================================
+Se na aba SETOR alguma linha tiver "indicador_ids" com lista de UUIDs, na
+Configuração → Módulos o dropdown "Meta (ano) para o setor" filtra a lista de
+indicadores por essa lista. Depois de criar o PAI:
+
+- Inclua o id do indicador PAI na string (além dos dois filhos), OU
+- Esvazie indicador_ids nesse setor para não restringir (como nas UTIs).
+
+================================================================================
+Módulo (aba modulo)
+================================================================================
+- layout_dashboard = bundle_kpi_tabela
+- pizza_fatias no módulo = vazio se só o pai define fatias
+- tipo_grafico do módulo = pode manter; o que evita dois pizzas são os filhos
+  com tipo_grafico = linha e o único pizza = o pai.
+
+================================================================================
+Resumo visual (aba indicador)
+================================================================================
+| papel | label (ex.)                 | tipo_grafico | pizza_fatias        |
+|-------|-----------------------------|--------------|---------------------|
+| PAI   | Distribuição por faixa etária | pizza      | JSON do Passo 2    |
+| Filho | 13 a 19 anos                | linha        | (vazio)             |
+| Filho | 20 a 39 anos                | linha        | (vazio)             |
+
+API / Base44: mesmos campos nas entidades Indicador (create pai + update filhos).
+
+================================================================================

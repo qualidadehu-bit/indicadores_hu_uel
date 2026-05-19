@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useAuth } from '@/lib/AuthContext';
+import { getSetoresVisiveisParaUsuario } from '@/lib/gestorSession';
 import { api } from '@/api/apiClient';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, AlertTriangle, XCircle, HelpCircle, TrendingUp } from 'lucide-react';
@@ -6,7 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import BadgeStatusMeta from '@/components/BadgeStatusMeta';
-import { calcularStatusMeta, getStatusConfig, STATUS_META, MESES_COMPLETO } from '@/lib/indicadores';
+import { calcularStatusMeta, getStatusConfig, STATUS_META, MESES_COMPLETO, DIRECAO_META } from '@/lib/indicadores';
+import { filtrarIndicadoresPorDivisao, filtrarIndicadoresPorSetorWhitelist } from '@/lib/indicadorDivisao';
 
 const STATUS_ICONS = {
   [STATUS_META.OK]: CheckCircle2,
@@ -20,8 +23,10 @@ export default function VisaoExecutiva({ ano, mes }) {
   const mesAtual = mes || new Date().getMonth() + 1;
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroDivisao, setFiltroDivisao] = useState('todos');
+  const { user } = useAuth();
 
   const { data: setores = [] } = useQuery({ queryKey: ['setores'], queryFn: () => api.entities.Setor.list() });
+  const setoresVis = useMemo(() => getSetoresVisiveisParaUsuario(setores, user), [setores, user]);
   const { data: indicadores = [] } = useQuery({ queryKey: ['indicadores'], queryFn: () => api.entities.Indicador.list() });
   const { data: lancamentos = [] } = useQuery({
     queryKey: ['lancamentos', anoAtual, mesAtual],
@@ -32,16 +37,27 @@ export default function VisaoExecutiva({ ano, mes }) {
     queryFn: () => api.entities.Meta.filter({ ano: anoAtual }),
   });
 
-  const divisoes = [...new Set(setores.map(s => s.divisao).filter(Boolean))];
+  const divisoes = [
+    ...new Set(
+      setoresVis.map((s) => String(s.divisao ?? '').trim()).filter((d) => d.length > 0)
+    ),
+  ];
 
   const getStatusSetor = (setorId) => {
-    const inds = indicadores;
+    const setor = setoresVis.find(s => String(s.id) === String(setorId));
+    const divNome = setor && String(setor.divisao || '').trim() ? String(setor.divisao).trim() : null;
+    const inds = filtrarIndicadoresPorSetorWhitelist(
+      filtrarIndicadoresPorDivisao(indicadores, divNome),
+      setor
+    );
     const statusCounts = { ok: 0, atencao: 0, critico: 0, semDados: 0 };
 
     inds.forEach(ind => {
       const lanc = lancamentos.find(l => l.indicador_id === ind.id && l.setor_id === setorId);
       const meta = metas.find(m => m.indicador_id === ind.id && m.setor_id === setorId);
-      const status = calcularStatusMeta(lanc?.valor, meta?.valor, ind.tipo_direcao_meta);
+      const direcao =
+        typeof ind.tipo_direcao_meta === 'string' ? ind.tipo_direcao_meta : DIRECAO_META.MENOR_E_MELHOR;
+      const status = calcularStatusMeta(lanc?.valor, meta?.valor, direcao);
       if (status === STATUS_META.OK) statusCounts.ok++;
       else if (status === STATUS_META.ATENCAO) statusCounts.atencao++;
       else if (status === STATUS_META.CRITICO) statusCounts.critico++;
@@ -58,19 +74,29 @@ export default function VisaoExecutiva({ ano, mes }) {
     return STATUS_META.SEM_DADOS;
   };
 
-  const setoresFiltrados = setores
+  const setoresFiltrados = setoresVis
     .filter(s => filtroDivisao === 'todos' || s.divisao === filtroDivisao)
     .map(s => {
       const counts = getStatusSetor(s.id);
       const statusGlobal = getStatusGlobalSetor(counts);
-      return { ...s, counts, statusGlobal };
+      return {
+        id: String(s.id),
+        nome: String(s.nome ?? ''),
+        divisao: String(s.divisao ?? ''),
+        counts,
+        statusGlobal,
+      };
     })
     .filter(s => filtroStatus === 'todos' || s.statusGlobal === filtroStatus);
 
-  // Global summary
-  const totalIndicadores = indicadores.length * setores.length;
+  const setoresParaResumoGlobal = useMemo(
+    () => setoresVis.filter(s => filtroDivisao === 'todos' || s.divisao === filtroDivisao),
+    [setoresVis, filtroDivisao]
+  );
+
+  // Global summary (por setor, só indicadores aplicáveis à divisão do setor; respeita filtro de divisão)
   let globalOk = 0, globalAtencao = 0, globalCritico = 0, globalSemDados = 0;
-  setores.forEach(s => {
+  setoresParaResumoGlobal.forEach(s => {
     const c = getStatusSetor(s.id);
     globalOk += c.ok;
     globalAtencao += c.atencao;
@@ -152,7 +178,6 @@ export default function VisaoExecutiva({ ano, mes }) {
         ) : (
           setoresFiltrados.map(setor => {
             const cfg = getStatusConfig(setor.statusGlobal);
-            const Icon = STATUS_ICONS[setor.statusGlobal];
             const total = setor.counts.ok + setor.counts.atencao + setor.counts.critico + setor.counts.semDados || 1;
             const okPct = Math.round((setor.counts.ok / total) * 100);
 

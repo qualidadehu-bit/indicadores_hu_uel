@@ -1,8 +1,13 @@
 // Inspired by react-hot-toast library
 import { useState, useEffect } from "react";
 
-const TOAST_LIMIT = 20;
-const TOAST_REMOVE_DELAY = 1000000;
+const TOAST_LIMIT = 5;
+/** Tempo após `open: false` para remover do DOM (animação de saída). */
+const TOAST_REMOVE_DELAY = 400;
+/** Padrão: some sozinho após N ms. Use `duration: 0` no `toast({...})` para não auto-fechar. */
+const DEFAULT_TOAST_DURATION_MS = 4000;
+
+const autoDismissTimeouts = new Map();
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -36,6 +41,14 @@ const addToRemoveQueue = (toastId) => {
   toastTimeouts.set(toastId, timeout);
 };
 
+function clearAutoDismiss(toastId) {
+  const t = autoDismissTimeouts.get(toastId);
+  if (t) {
+    clearTimeout(t);
+    autoDismissTimeouts.delete(toastId);
+  }
+}
+
 const _clearFromRemoveQueue = (toastId) => {
   const timeout = toastTimeouts.get(toastId);
   if (timeout) {
@@ -63,12 +76,12 @@ export const reducer = (state, action) => {
     case actionTypes.DISMISS_TOAST: {
       const { toastId } = action;
 
-      // ! Side effects ! - This could be extracted into a dismissToast() action,
-      // but I'll keep it here for simplicity
       if (toastId) {
+        clearAutoDismiss(toastId);
         addToRemoveQueue(toastId);
       } else {
         state.toasts.forEach((toast) => {
+          clearAutoDismiss(toast.id);
           addToRemoveQueue(toast.id);
         });
       }
@@ -110,7 +123,11 @@ function dispatch(action) {
   });
 }
 
-function toast({ ...props }) {
+/**
+ * @param {Record<string, unknown> & { duration?: number }} [toastProps]
+ */
+function toast(toastProps = {}) {
+  const { duration: durationProp, ...props } = toastProps;
   const id = genId();
 
   const update = (props) =>
@@ -119,8 +136,10 @@ function toast({ ...props }) {
       toast: { ...props, id },
     });
 
-  const dismiss = () =>
+  const dismiss = () => {
+    clearAutoDismiss(id);
     dispatch({ type: actionTypes.DISMISS_TOAST, toastId: id });
+  };
 
   dispatch({
     type: actionTypes.ADD_TOAST,
@@ -133,6 +152,13 @@ function toast({ ...props }) {
       },
     },
   });
+
+  const duration =
+    durationProp === undefined ? DEFAULT_TOAST_DURATION_MS : durationProp;
+  if (typeof duration === "number" && duration > 0) {
+    const t = setTimeout(() => dismiss(), duration);
+    autoDismissTimeouts.set(id, t);
+  }
 
   return {
     id,

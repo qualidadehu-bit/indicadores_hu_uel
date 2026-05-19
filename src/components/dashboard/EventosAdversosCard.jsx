@@ -1,9 +1,16 @@
 import { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend
+  LineChart, Line, Legend, ReferenceLine,
 } from 'recharts';
 import { AlertTriangle } from 'lucide-react';
+import {
+  ALIAS_EVENTOS_NOTIF,
+  EVENTOS_ADVERSOS_CATEGORIA_ALIASES,
+  filterIndicadoresCategoriaEventos,
+  findIndicadorPorAliases,
+} from '@/lib/dashboardIndicadorLabels';
+import { pickLancamentoMes } from '@/lib/lancamentosDashboard';
 
 const MESES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -43,18 +50,13 @@ export default function EventosAdversosCard({ ano, mes, indicadores, lancamentos
   const [mesSelecionado, setMesSelecionado] = useState(mes);
   const [densityCat, setDensityCat] = useState('Todas');
 
-  const getLanc = (indicadorId, m) =>
-    lancamentos.find(l =>
-      l.indicador_id === indicadorId &&
-      l.mes === m &&
-      (!setorId || l.setor_id === setorId)
-    );
+  const getLanc = (indicadorId, m) => pickLancamentoMes(lancamentos, indicadorId, m, setorId);
 
   // Sort indicadores by ordem
   const inds = [...indicadores].sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
 
   // Separate "Notif. Enviadas" from the rest
-  const notifInd = inds.find(i => i.label === NOTIF_LABEL || i.nome === 'Notificações Enviadas');
+  const notifInd = findIndicadorPorAliases(inds, [...ALIAS_EVENTOS_NOTIF, NOTIF_LABEL]);
   const mainInds = inds.filter(i => i.id !== notifInd?.id);
 
   // === SECTION 1: Bar chart — total events per month (sum of all non-notif indicators)
@@ -91,37 +93,38 @@ export default function EventosAdversosCard({ ano, mes, indicadores, lancamentos
 
   // === SECTION 3: Density line chart
   const densityIndsMap = {
-    'Todas':            mainInds,
-    'Identificação':    mainInds.filter(i => i.label === 'Identificação'),
-    'Medicação':        mainInds.filter(i => i.label === 'Medicação'),
-    'Higiene das mãos': mainInds.filter(i => i.label === 'Higiene das mãos'),
-    'LP':               mainInds.filter(i => i.label === 'LP'),
-    'LPDM':             mainInds.filter(i => i.label === 'LPDM'),
-    'Queda':            mainInds.filter(i => i.label === 'Queda'),
-    'IRCVA':            mainInds.filter(i => i.label === 'IRCVA'),
+    Todas: mainInds,
+    ...Object.fromEntries(
+      Object.keys(EVENTOS_ADVERSOS_CATEGORIA_ALIASES).map((cat) => [
+        cat,
+        filterIndicadoresCategoriaEventos(mainInds, cat),
+      ])
+    ),
   };
+
+  const indicatorsForDensity = densityIndsMap[densityCat] ?? mainInds;
 
   const densityData = MESES_CURTO.map((label, i) => {
     const m = i + 1;
     const row = { mes: label };
-    if (densityCat === 'Todas') {
-      mainInds.forEach(ind => {
-        const lanc = getLanc(ind.id, m);
-        row[ind.label || ind.nome] = lanc?.valor ?? null;
-      });
-    } else {
-      const filtered = densityIndsMap[densityCat] || [];
-      filtered.forEach(ind => {
-        const lanc = getLanc(ind.id, m);
-        row[ind.label || ind.nome] = lanc?.valor ?? null;
-      });
-    }
+    indicatorsForDensity.forEach((ind) => {
+      const lanc = getLanc(ind.id, m);
+      row[`d_${ind.id}`] = lanc?.valor ?? null;
+    });
     return row;
   });
 
-  const densityLines = densityCat === 'Todas'
-    ? mainInds.map((ind, idx) => ({ key: ind.label || ind.nome, color: Object.values(LINE_COLORS)[idx % Object.values(LINE_COLORS).length] }))
-    : (densityIndsMap[densityCat] || []).map(ind => ({ key: ind.label || ind.nome, color: LINE_COLORS[densityCat] || '#3b82f6' }));
+  const lineColorsCycle = Object.values(LINE_COLORS);
+  const densityLineSeries = indicatorsForDensity.map((ind, idx) => ({
+    dataKey: `d_${ind.id}`,
+    name: String(ind.label || ind.nome || `Série ${idx + 1}`),
+    color:
+      densityCat === 'Todas'
+        ? lineColorsCycle[idx % lineColorsCycle.length]
+        : (LINE_COLORS[densityCat] || '#3b82f6'),
+  }));
+
+  const mesAtivoLabel = MESES_CURTO[mesSelecionado - 1];
 
   return (
     <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden" data-modulo-id={moduloId}>
@@ -140,6 +143,7 @@ export default function EventosAdversosCard({ ano, mes, indicadores, lancamentos
           {MESES_CURTO.map((m, i) => (
             <button
               key={m}
+              type="button"
               onClick={() => setMesSelecionado(i + 1)}
               className={`px-2 py-0.5 rounded text-xs font-medium transition-all ${
                 mesSelecionado === i + 1
@@ -211,7 +215,7 @@ export default function EventosAdversosCard({ ano, mes, indicadores, lancamentos
                             outlineOffset: '1px',
                           }}
                         >
-                          {val}
+                          {String(val)}
                         </span>
                       ) : (
                         <span className="inline-flex items-center justify-center w-11 h-7 text-gray-300 text-xs">—</span>
@@ -237,7 +241,7 @@ export default function EventosAdversosCard({ ano, mes, indicadores, lancamentos
                             outlineOffset: '1px',
                           }}
                         >
-                          {val}
+                          {String(val)}
                         </span>
                       ) : (
                         <span className="inline-flex items-center justify-center w-11 h-7 text-gray-300 text-xs">—</span>
@@ -280,20 +284,40 @@ export default function EventosAdversosCard({ ano, mes, indicadores, lancamentos
         {densityCat !== 'Todas' && (
           <p className="text-xs text-amber-500 mb-1">⚡ Selecione 1 categoria para rótulos de valor</p>
         )}
-        <ResponsiveContainer width="100%" height={220}>
-          <LineChart data={densityData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={densityData} margin={{ top: 8, right: 12, left: -8, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis dataKey="mes" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }} />
-            {densityLines.map(({ key, color }) => (
+            <Tooltip
+              contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+              formatter={(value, name) => {
+                if (value === null || value === undefined || Number.isNaN(Number(value))) {
+                  return ['—', name];
+                }
+                const n = Number(value);
+                const formatted = n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+                return [formatted, name];
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: 10 }} iconType="line" />
+            <ReferenceLine
+              x={mesAtivoLabel}
+              stroke="#06b6d4"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              isFront
+            />
+            {densityLineSeries.map(({ dataKey, name, color }) => (
               <Line
-                key={key}
+                key={dataKey}
                 type="monotone"
-                dataKey={key}
+                dataKey={dataKey}
+                name={name}
                 stroke={color}
                 strokeWidth={2}
-                dot={false}
+                dot={{ r: 4, strokeWidth: 2, fill: color, stroke: '#fff' }}
+                activeDot={{ r: 6, strokeWidth: 2, fill: color, stroke: '#fff' }}
                 connectNulls={false}
               />
             ))}

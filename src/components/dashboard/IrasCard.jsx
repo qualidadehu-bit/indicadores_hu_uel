@@ -4,6 +4,24 @@ import {
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { Activity } from 'lucide-react';
+import {
+  findIndicadorPorAliases,
+  findIndicadorDensidadeIRAS,
+  nr32SerieStyleForIndicador,
+  ALIAS_IRAS_INC_PAV,
+  ALIAS_IRAS_TAXA_VM,
+  ALIAS_IRAS_INC_ICS,
+  ALIAS_IRAS_TAXA_CVC,
+  ALIAS_IRAS_INC_ITU,
+  ALIAS_IRAS_TAXA_CVD,
+  ALIAS_IRAS_HM_MED_AVAL,
+  ALIAS_IRAS_HM_MED_ADES,
+  ALIAS_IRAS_HM_ENF_AVAL,
+  ALIAS_IRAS_HM_ENF_ADES,
+  ALIAS_IRAS_HM_FIS_AVAL,
+  ALIAS_IRAS_HM_FIS_ADES,
+} from '@/lib/dashboardIndicadorLabels';
+import { pickLancamentoMes } from '@/lib/lancamentosDashboard';
 
 const MESES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -21,7 +39,20 @@ const LabeledDot = (props) => {
   );
 };
 
-function DeviceSection({ title, kpi1Label, kpi1Value, kpi1Unit, kpi2Label, kpi2Value, kpi2Unit, chartData, line1Key, line1Name, line2Key, line2Name }) {
+function DeviceSection({
+  title,
+  kpi1Label,
+  kpi1Value,
+  kpi1Unit = '',
+  kpi2Label,
+  kpi2Value,
+  kpi2Unit: _kpi2Unit = '',
+  chartData,
+  line1Key,
+  line1Name,
+  line2Key,
+  line2Name,
+}) {
   return (
     <div className="border border-gray-100 rounded-xl overflow-hidden mb-4">
       {/* Sub-header */}
@@ -82,43 +113,32 @@ function DeviceSection({ title, kpi1Label, kpi1Value, kpi1Unit, kpi2Label, kpi2V
   );
 }
 
-const NR32_SERIES = [
-  { label: 'Adornos',          color: '#1e3a5f' },
-  { label: 'Cabelo Solto',     color: '#22c55e' },
-  { label: 'Sem Jaleco',       color: '#f59e0b' },
-  { label: 'Unhas c/ Relevo',  color: '#ef4444' },
-  { label: 'Unhas >2mm',       color: '#8b5cf6' },
-  { label: 'Unhas Postiças',   color: '#ec4899' },
-];
-
+/**
+ * Card IRAS do dashboard. A prop `indicadores` já vem filtrada por módulo e por `divisoes`
+ * (ver `filtrarIndicadoresPorDivisao` em `Dashboard.jsx`); indicadores excluídos pela divisão
+ * atual não entram na lista e os aliases (ex.: Taxa VM) deixam de casar.
+ */
 export default function IrasCard({ ano, mes, indicadores, lancamentos, setorId, indicadoresNr32 = [], moduloId }) {
   const [mesSelecionado, setMesSelecionado] = useState(mes);
 
-  const getLanc = (indicadorId, m) =>
-    lancamentos.find(l =>
-      l.indicador_id === indicadorId &&
-      l.mes === m &&
-      (!setorId || l.setor_id === setorId)
-    );
+  const getLanc = (indicadorId, m) => pickLancamentoMes(lancamentos, indicadorId, m, setorId);
 
   const getVal = (ind, m) => ind ? getLanc(ind.id, m)?.valor ?? null : null;
 
-  // Find indicators by label
-  const indDens    = indicadores.find(i => i.label === 'Densidade IRAS');
-  const indPAVInc  = indicadores.find(i => i.label === 'Incidência PAV');
-  const indTaxaVM  = indicadores.find(i => i.label === 'Taxa VM (%)');
-  const indICSInc  = indicadores.find(i => i.label === 'Incidência ICS');
-  const indTaxaCVC = indicadores.find(i => i.label === 'Taxa CVC (%)');
-  const indITUInc  = indicadores.find(i => i.label === 'Incidência ITU');
-  const indTaxaCVD = indicadores.find(i => i.label === 'Taxa CVD (%)');
+  const indDens = findIndicadorDensidadeIRAS(indicadores);
+  const indPAVInc = findIndicadorPorAliases(indicadores, ALIAS_IRAS_INC_PAV);
+  const indTaxaVM = findIndicadorPorAliases(indicadores, ALIAS_IRAS_TAXA_VM);
+  const indICSInc = findIndicadorPorAliases(indicadores, ALIAS_IRAS_INC_ICS);
+  const indTaxaCVC = findIndicadorPorAliases(indicadores, ALIAS_IRAS_TAXA_CVC);
+  const indITUInc = findIndicadorPorAliases(indicadores, ALIAS_IRAS_INC_ITU);
+  const indTaxaCVD = findIndicadorPorAliases(indicadores, ALIAS_IRAS_TAXA_CVD);
 
-  // Higiene das mãos
-  const indMedAval  = indicadores.find(i => i.label === 'HM Medicina Aval.');
-  const indMedAdes  = indicadores.find(i => i.label === 'HM Medicina Ades.');
-  const indEnfAval  = indicadores.find(i => i.label === 'HM Enfermagem Aval.');
-  const indEnfAdes  = indicadores.find(i => i.label === 'HM Enfermagem Ades.');
-  const indFisAval  = indicadores.find(i => i.label === 'HM Fisioterapia Aval.');
-  const indFisAdes  = indicadores.find(i => i.label === 'HM Fisioterapia Ades.');
+  const indMedAval = findIndicadorPorAliases(indicadores, ALIAS_IRAS_HM_MED_AVAL);
+  const indMedAdes = findIndicadorPorAliases(indicadores, ALIAS_IRAS_HM_MED_ADES);
+  const indEnfAval = findIndicadorPorAliases(indicadores, ALIAS_IRAS_HM_ENF_AVAL);
+  const indEnfAdes = findIndicadorPorAliases(indicadores, ALIAS_IRAS_HM_ENF_ADES);
+  const indFisAval = findIndicadorPorAliases(indicadores, ALIAS_IRAS_HM_FIS_AVAL);
+  const indFisAdes = findIndicadorPorAliases(indicadores, ALIAS_IRAS_HM_FIS_ADES);
 
   // Density chart data
   const densData = MESES_CURTO.map((label, i) => ({
@@ -187,6 +207,7 @@ export default function IrasCard({ ano, mes, indicadores, lancamentos, setorId, 
           {MESES_CURTO.map((m, i) => (
             <button
               key={m}
+              type="button"
               onClick={() => setMesSelecionado(i + 1)}
               className={`px-2 py-0.5 rounded text-xs font-medium transition-all ${
                 mesSelecionado === i + 1
@@ -201,6 +222,7 @@ export default function IrasCard({ ano, mes, indicadores, lancamentos, setorId, 
       </div>
 
       <div className="px-5 pb-5 space-y-5">
+        <div data-pdf-export="iras-charts" className="space-y-5">
         {/* SECTION 1: Densidade Geral */}
         <div>
           <p className="text-xs font-bold text-primary uppercase tracking-wide mb-2 flex items-center gap-1">
@@ -287,7 +309,7 @@ export default function IrasCard({ ano, mes, indicadores, lancamentos, setorId, 
                 <div className="flex gap-4">
                   <div>
                     <p className="text-[10px] text-muted-foreground uppercase">Avaliações</p>
-                    <p className="text-lg font-jakarta font-bold text-foreground">{aval ?? '—'}</p>
+                    <p className="text-lg font-jakarta font-bold text-foreground">{aval != null ? String(aval) : '—'}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-foreground uppercase">Adesão</p>
@@ -311,17 +333,16 @@ export default function IrasCard({ ano, mes, indicadores, lancamentos, setorId, 
             </LineChart>
           </ResponsiveContainer>
         </div>
+        </div>
 
         {/* SECTION 4: NR32 */}
         {indicadoresNr32.length > 0 && (() => {
           const nr32Inds = [...indicadoresNr32].sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
           const nr32ChartData = MESES_CURTO.map((label, i) => {
             const row = { mes: label };
-            nr32Inds.forEach(ind => {
+            nr32Inds.forEach((ind) => {
               const key = ind.label || ind.nome;
-              const lanc = lancamentos.find(l =>
-                l.indicador_id === ind.id && l.mes === i + 1 && (!setorId || l.setor_id === setorId)
-              );
+              const lanc = pickLancamentoMes(lancamentos, ind.id, i + 1, setorId);
               row[key] = lanc?.valor ?? null;
             });
             return row;
@@ -335,10 +356,8 @@ export default function IrasCard({ ano, mes, indicadores, lancamentos, setorId, 
               {/* KPI row */}
               <div className="flex flex-wrap gap-3 mb-3">
                 {nr32Inds.map((ind, idx) => {
-                  const lanc = lancamentos.find(l =>
-                    l.indicador_id === ind.id && l.mes === mesSelecionado && (!setorId || l.setor_id === setorId)
-                  );
-                  const serie = NR32_SERIES.find(s => s.label === (ind.label || ind.nome)) || NR32_SERIES[idx % NR32_SERIES.length];
+                  const lanc = pickLancamentoMes(lancamentos, ind.id, mesSelecionado, setorId);
+                  const serie = nr32SerieStyleForIndicador(ind, idx);
                   return (
                     <div key={ind.id} className="flex-1 min-w-[100px] border rounded-lg px-3 py-2" style={{ borderColor: serie.color + '55' }}>
                       <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: serie.color }}>
@@ -361,7 +380,7 @@ export default function IrasCard({ ano, mes, indicadores, lancamentos, setorId, 
                   <Legend wrapperStyle={{ fontSize: 10 }} />
                   {nr32Inds.map((ind, idx) => {
                     const key = ind.label || ind.nome;
-                    const serie = NR32_SERIES.find(s => s.label === key) || NR32_SERIES[idx % NR32_SERIES.length];
+                    const serie = nr32SerieStyleForIndicador(ind, idx);
                     return (
                       <Line key={ind.id} type="monotone" dataKey={key} name={key} stroke={serie.color} strokeWidth={2} dot={{ r: 3, fill: serie.color, strokeWidth: 0 }} connectNulls={false} />
                     );

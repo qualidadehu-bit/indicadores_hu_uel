@@ -1,0 +1,13 @@
+# Conta master do Escritório da Qualidade (login na Landing → card "Escritório da Qualidade")
+#
+# Na planilha Google Sheets, aba **conta** (minúsculo), linha 1 deve ter os cabeçalhos:
+#   id | login | senha_hash | tipo | ativo
+#
+# Cole a LINHA ABAIXO na linha 2 (ou após as linhas já existentes), uma célula por coluna:
+#
+# Senha em texto: 123456
+# O Apps Script compara com SHA-256 em hexadecimal (igual ao hash abaixo).
+
+46507661-454c-4975-89af-fd1c1305a5ae	admin	8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92	escritorio	TRUE
+
+# (Valores separados por TAB — ao colar no Sheets, cada TAB vira uma coluna.)

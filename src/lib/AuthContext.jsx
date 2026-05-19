@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 function readSessionFromStorage() {
   try {

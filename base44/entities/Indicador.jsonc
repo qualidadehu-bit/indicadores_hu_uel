@@ -1,0 +1,33 @@
+{
+  "name": "Indicador",
+  "type": "object",
+  "properties": {
+    "nome": { "type": "string" },
+    "label": { "type": "string" },
+    "unidade": { "type": "string" },
+    "modulo_id": { "type": "string" },
+    "modulo_nome": { "type": "string" },
+    "tipo_direcao_meta": {
+      "type": "string",
+      "enum": ["MAIOR_E_MELHOR", "MENOR_E_MELHOR", "META_CONTRATUAL"],
+      "default": "MENOR_E_MELHOR"
+    },
+    "ordem": { "type": "number", "default": 0 },
+    "ativo": { "type": "boolean", "default": true },
+    "grupo_radar": { "type": "string" },
+    "grupo_serie": { "type": "string" },
+    "tipo_grafico": {
+      "type": "string",
+      "description": "Opcional. linha|barra|area|pizza|radar (e mapa_calor no UI). Vazio = usar tipo_grafico do m\u00f3dulo."
+    },
+    "divisoes": {
+      "type": "string",
+      "description": "Opcional. Divis\u00f5es (mesmo texto que Setor.divisao) separadas por | ou ;. Vazio = todas."
+    },
+    "pizza_fatias": {
+      "type": "string",
+      "description": "Opcional. JSON [{\"label\":\"...\",\"indicador_id\":\"...\"}] para pizza customizada (valor = m\u00eas do dashboard). Vazio = pizza por meses."
+    }
+  },
+  "required": ["nome", "modulo_id"]
+}
