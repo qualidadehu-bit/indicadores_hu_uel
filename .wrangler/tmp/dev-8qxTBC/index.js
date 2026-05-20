@@ -1,7 +1,7 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-// .wrangler/tmp/bundle-FinDU9/checked-fetch.js
+// .wrangler/tmp/bundle-gqK11E/checked-fetch.js
 var urls = /* @__PURE__ */ new Set();
 function checkURL(request, init) {
   const url = request instanceof URL ? request : new URL(
@@ -47,23 +47,20 @@ function jsonResponse(body, status = 200) {
 __name(jsonResponse, "jsonResponse");
 var src_default = {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") {
+    const url = new URL(request.url);
+    const isApi = url.pathname === "/api";
+    const isHealth = url.pathname === "/health";
+    if (request.method === "OPTIONS" && (isApi || isHealth)) {
       return new Response(null, { headers: CORS_HEADERS });
     }
-    const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") {
+    if (request.method === "GET" && isHealth) {
       return jsonResponse({ ok: true, service: "dashboardhu" });
     }
-    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "")) {
-      return jsonResponse({
-        ok: true,
-        service: "dashboardhu",
-        message: "API do Worker. O frontend React roda separado: npm run dev (ex. http://localhost:5173). Teste GET /health; dados via POST /api.",
-        endpoints: { health: "GET /health", api: "POST /api" }
-      });
+    if (!isApi) {
+      return env.ASSETS.fetch(request);
     }
-    if (request.method !== "POST" || url.pathname !== "/api") {
-      return jsonResponse({ ok: false, error: "Not found" }, 404);
+    if (request.method !== "POST") {
+      return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
     }
     const headerGasSecret = request.headers.get("X-GAS-Secret")?.trim() || "";
     const gasSecret = (env.GAS_SECRET || headerGasSecret).trim();
@@ -176,7 +173,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx)
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-FinDU9/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-gqK11E/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -208,7 +205,7 @@ function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-FinDU9/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-gqK11E/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

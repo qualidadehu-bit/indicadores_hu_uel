@@ -1,5 +1,5 @@
 /** Compara ids de indicador/setor entre API (string | number) e planilha. */
-function idsMatch(a, b) {
+export function idsMatch(a, b) {
   if (a === b) return true;
   if (a == null || b == null) return false;
   return String(a) === String(b);

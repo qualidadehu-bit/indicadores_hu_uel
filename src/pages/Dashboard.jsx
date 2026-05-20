@@ -24,6 +24,7 @@ import {
 import { findModuloPorDashboardKind, getModuloDashboardKind } from '@/lib/moduloTipoUi';
 import { useAuth } from '@/lib/AuthContext';
 import { getSetoresVisiveisParaUsuario } from '@/lib/gestorSession';
+import { pickLancamentoMes } from '@/lib/lancamentosDashboard';
 
 export default function Dashboard({ ano, mes }) {
   const anoAtual = ano || new Date().getFullYear();
@@ -94,13 +95,8 @@ export default function Dashboard({ ano, mes }) {
     [indicadoresAposDivisao, setorContextoObj]
   );
 
-  const getLancamento = (indicadorId, setorId, m) => {
-    return lancamentos.find(l =>
-      l.indicador_id === indicadorId &&
-      l.setor_id === setorId &&
-      l.mes === m
-    );
-  };
+  const getLancamento = (indicadorId, setorId, m) =>
+    pickLancamentoMes(lancamentos, indicadorId, m, setorId);
 
   const getMeta = (indicadorId, sid) => {
     if (!sid) return undefined;
@@ -115,7 +111,9 @@ export default function Dashboard({ ano, mes }) {
       const lancRec = setorContextoId ? getLancamento(ind.id, setorContextoId, mesAtual) : undefined;
       const direcao =
         typeof ind.tipo_direcao_meta === 'string' ? ind.tipo_direcao_meta : undefined;
-      const status = calcularStatusMeta(lancRec?.valor, metaRec?.valor, direcao);
+      const valorLanc =
+        lancRec?.valor != null && lancRec.valor !== '' ? Number(lancRec.valor) : null;
+      const status = calcularStatusMeta(valorLanc, metaRec?.valor, direcao);
       if (status === STATUS_META.OK) ok++;
       else if (status === STATUS_META.ATENCAO) atencao++;
       else if (status === STATUS_META.CRITICO) critico++;

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestão à Vista — Indicadores HU UEL</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: Arial, sans-serif;
+        background: #f3f6fb;
+        color: #1f2937;
+        padding: 20px;
+      }
+      .card {
+        width: 100%;
+        max-width: 560px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        padding: 24px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 1.25rem;
+      }
+      p {
+        margin: 0;
+        line-height: 1.5;
+      }
+      .helper {
+        margin-top: 10px;
+        color: #4b5563;
+      }
+      .link {
+        display: inline-block;
+        margin-top: 16px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #ffffff;
+        text-decoration: none;
+        font-weight: 700;
+      }
+      .link:hover {
+        background: #1d4ed8;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Gestão à Vista — Indicadores HU UEL</h1>
+      <p>Abrindo a plataforma...</p>
+      <p class="helper">Se não redirecionar automaticamente, use o botão abaixo.</p>
+      <a
+        id="manual-link"
+        class="link"
+        href="https://dashboardhu.qualidade-hu.workers.dev"
+        rel="noopener noreferrer"
+      >
+        Acessar plataforma
+      </a>
+    </main>
+
+    <script>
+      (function redirectToPlatform() {
+        var appUrl = 'https://dashboardhu.qualidade-hu.workers.dev';
+        window.location.replace(appUrl);
+      })();
+    </script>
+  </body>
+</html>

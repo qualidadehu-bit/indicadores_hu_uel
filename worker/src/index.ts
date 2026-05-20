@@ -1,6 +1,7 @@
 export interface Env {
   GAS_WEBAPP_URL: string;
   GAS_SECRET: string;
+  ASSETS: Fetcher;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -23,29 +24,25 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === 'OPTIONS') {
+    const url = new URL(request.url);
+    const isApi = url.pathname === '/api';
+    const isHealth = url.pathname === '/health';
+
+    if (request.method === 'OPTIONS' && (isApi || isHealth)) {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
-    const url = new URL(request.url);
-
-    if (request.method === 'GET' && url.pathname === '/health') {
+    if (request.method === 'GET' && isHealth) {
       return jsonResponse({ ok: true, service: 'dashboardhu' });
     }
 
-    // Raiz: evita 404 ao abrir http://127.0.0.1:8787/ no navegador (não é o app React)
-    if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
-      return jsonResponse({
-        ok: true,
-        service: 'dashboardhu',
-        message:
-          'API do Worker. O frontend React roda separado: npm run dev (ex. http://localhost:5173). Teste GET /health; dados via POST /api.',
-        endpoints: { health: 'GET /health', api: 'POST /api' },
-      });
+    if (!isApi) {
+      // Demais rotas: assets estáticos + SPA (wrangler.toml run_worker_first)
+      return env.ASSETS.fetch(request);
     }
 
-    if (request.method !== 'POST' || url.pathname !== '/api') {
-      return jsonResponse({ ok: false, error: 'Not found' }, 404);
+    if (request.method !== 'POST') {
+      return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
     }
 
     const headerGasSecret = request.headers.get('X-GAS-Secret')?.trim() || '';

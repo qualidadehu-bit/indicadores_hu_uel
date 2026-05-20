@@ -10,37 +10,67 @@ Frontend em **React + Vite** que fala com um **Cloudflare Worker**, que por sua 
 
 ## Configuração
 
-1. Copie `.env.example` para `.env` ou `.env.local` e defina:
+1. Copie `.env.example` para `.env` ou `.env.local` (opcional em dev local).
 
-   ```bash
-   VITE_WORKER_URL=http://127.0.0.1:8787
-   ```
+   Em **desenvolvimento local**, `npm run dev` sobe tudo na porta **8787** — não é necessário definir `VITE_WORKER_URL` (o frontend usa `/api` na mesma origem; o Vite faz proxy para o Worker na **8788**).
 
-   Se `VITE_WORKER_URL` estiver vazio, o frontend usa **`http://127.0.0.1:8787`**. Opcional: `VITE_GAS_SECRET` (só debug local — envia `X-GAS-Secret`; exposto no browser; prefira `GAS_SECRET` no Worker).
+   Em **produção** (`npm run cf:deploy`), plataforma e API ficam no mesmo Worker:
 
-   Em produção, use a URL pública do Worker (ex.: `https://dashboardhu.qualidade-hu.workers.dev`, conforme o `name` em `wrangler.toml`).
+   **https://dashboardhu.qualidade-hu.workers.dev**
+
+   Não é necessário definir `VITE_WORKER_URL` no build — o frontend usa `/api` na mesma origem.
+
+   Se o frontend for hospedado em **outro domínio**, defina `VITE_WORKER_URL` com a URL do Worker na hora do `npm run build`.
+
+   Opcional: `VITE_GAS_SECRET` (só debug local — envia `X-GAS-Secret`; exposto no browser; prefira `GAS_SECRET` no Worker).
 
 2. Worker — copie **`.dev.vars.example`** para **`.dev.vars`** na **raiz** do projeto (ao lado de `wrangler.toml`) e preencha:
 
    - `GAS_WEBAPP_URL` — URL `/exec` do Web App do Apps Script  
    - `GAS_SECRET` — mesmo valor da propriedade `API_SECRET` configurada no script (`gas/Code.gs`)
 
+## Publicacao do Apps Script com clasp
+
+1. Instale o `clasp` globalmente:
+   - `npm install -g @google/clasp`
+
+2. Faça login na sua conta Google:
+   - `clasp login`
+
+3. Configure o arquivo `.clasp.json` na raiz:
+   - `rootDir` deve ser `gas`
+   - `scriptId` deve ser o ID do seu projeto em `https://script.google.com`
+
+4. Publique o codigo da pasta `gas/`:
+   - `npm run gas:push`
+   - (equivalente a `clasp push`)
+
+5. No Apps Script, faca o deploy do Web App e copie a URL `/exec` para:
+   - `GAS_WEBAPP_URL` (Cloudflare Worker)
+
+Se o terminal nao reconhecer `clasp` apos instalar, feche e abra o terminal novamente. Como alternativa, use `npx @google/clasp push`.
+
 ## Comandos
 
 | Comando | Descrição |
 |--------|-----------|
 | `npm install` | Instala dependências |
-| `npm run dev` | Frontend Vite (desenvolvimento) |
-| `npm run build` | Build de produção |
+| `npm run gas:push` | Publica `gas/Code.gs` no projeto Google Apps Script configurado no `.clasp.json` |
+| `npm run dev` | **Stack completa local** — plataforma em **http://127.0.0.1:8787** + Worker API na 8788 |
+| `npm run dev:vite` | Só o frontend Vite (8787); exige Worker já rodando (`cf:dev`) |
+| `npm run build` | Build de produção (`dist/`) |
 | `npm run preview` | Preview do build |
-| `npm run worker:dev` | Worker local (Wrangler) |
-| `npm run worker:deploy` | Publica o Worker na Cloudflare |
-| `npm run cf:dev` | Alias do `worker:dev` (mesmo Wrangler) |
-| `npm run cf:deploy` | Alias do `worker:deploy` |
+| `npm run cf:deploy` | Build + publica **plataforma + API** na Cloudflare |
+| `npm run dev:cf` | Build + Wrangler local na **8787** (igual produção, uma porta) |
+| `npm run worker:dev` | Só o Worker local (Wrangler, porta **8788**) |
+| `npm run worker:deploy` | Alias do `cf:deploy` |
+| `npm run cf:dev` | Alias do `worker:dev` |
 
-**Stack completa em desenvolvimento local:** use **dois terminais** — não há script `dev:full` para não adicionar dependências só para paralelismo; em um terminal rode `npm run cf:dev` (ou `worker:dev`), em outro `npm run dev`. No `.env`, `VITE_WORKER_URL` deve ser a URL/porta que o Wrangler mostrar (ex.: `http://127.0.0.1:8787` ou `:8788` se a 8787 estiver ocupada).
+**Desenvolvimento local:** `npm run dev` → **http://127.0.0.1:8787** (Vite + proxy `/api` → Worker 8788).
 
-Fluxo alternativo: só `npm run dev` com `VITE_WORKER_URL` apontando para o Worker já publicado na Cloudflare (`*.workers.dev`).
+**Produção:** `npm run cf:deploy` → **https://dashboardhu.qualidade-hu.workers.dev** (React + `/api` no mesmo Worker).
+
+Fluxo alternativo: Worker remoto + só Vite local — `npm run dev:vite` com `VITE_WORKER_URL=https://dashboardhu.qualidade-hu.workers.dev`.
 
 ### Erro: `Worker misconfigured: GAS_WEBAPP_URL missing, or GAS_SECRET missing`
 

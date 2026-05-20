@@ -4,16 +4,15 @@ import { normalizeEntityResponse } from '@/lib/sheetsEntityNormalize';
  * Cliente HTTP direto (fetch) → Cloudflare Worker POST /api → Google Apps Script.
  *
  * Variáveis Vite:
- *   VITE_WORKER_URL — base sem barra final (default: http://127.0.0.1:8787)
+ *   VITE_WORKER_URL — base sem barra final (produção: URL do Worker na Cloudflare).
+ *                     Em dev local, omita ou deixe vazio: usa same-origin (/api via proxy Vite → 8788).
  *   VITE_GAS_SECRET — opcional; enviado como cabeçalho X-GAS-Secret (só para debug local;
  *                     no bundle do navegador fica visível — não use em produção com segredo real).
  */
 
-const DEFAULT_WORKER_URL = 'http://127.0.0.1:8787';
-
 function workerBaseUrl() {
   const raw = import.meta.env.VITE_WORKER_URL;
-  let url = raw != null && String(raw).trim() !== '' ? String(raw).trim() : DEFAULT_WORKER_URL;
+  let url = raw != null && String(raw).trim() !== '' ? String(raw).trim() : '';
   url = url.replace(/\/$/, '');
   // Evita POST em .../api/api se alguém colar a URL já com /api
   if (url.endsWith('/api')) {

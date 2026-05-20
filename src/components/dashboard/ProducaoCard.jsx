@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import { BarChart2 } from 'lucide-react';
+import { idsMatch, pickLancamentoMes } from '@/lib/lancamentosDashboard';
 
 const MESES_CURTO = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
@@ -31,6 +32,7 @@ function findIndicadorProducao(indsModulo, candidatos) {
   }
   for (const nomeCanon of candidatos) {
     const target = stripAccents(nomeCanon).toLowerCase();
+    if (target.length <= 3) continue;
     const parcial = indsModulo.find((ind) => {
       const { n, l } = nomeNormado(ind);
       return (n && n.includes(target)) || (l && l.includes(target));
@@ -40,15 +42,32 @@ function findIndicadorProducao(indsModulo, candidatos) {
   return undefined;
 }
 
-const CANDIDATOS_OCUPACAO = ['Taxa de Ocupação', 'Taxa de Ocupacao', 'Ocupação', 'Ocupacao'];
+const CANDIDATOS_OCUPACAO = [
+  'Taxa de Ocupação',
+  'Taxa de Ocupacao',
+  'Taxa Ocupação',
+  'Taxa Ocupacao',
+  'Tx Ocupação',
+  'Tx Ocupacao',
+  'TO',
+  'Ocupação',
+  'Ocupacao',
+];
 const CANDIDATOS_PERMANENCIA = ['Média de Permanência', 'Media de Permanencia', 'Permanência Média', 'Permanencia Media', 'Permanência', 'Permanencia'];
 const CANDIDATOS_GIRO = ['Giro de Leito', 'Giro de leito'];
 
 export default function ProducaoCard({ ano, mes, indicadores, lancamentos, metas, setorId, moduloId }) {
   const [mesSelecionado, setMesSelecionado] = useState(mes);
 
+  useEffect(() => {
+    setMesSelecionado(mes);
+  }, [mes]);
+
   const indsModulo = useMemo(
-    () => indicadores.filter((i) => i.modulo_id === moduloId).sort((a, b) => (a.ordem || 0) - (b.ordem || 0)),
+    () =>
+      indicadores
+        .filter((i) => String(i.modulo_id) === String(moduloId))
+        .sort((a, b) => (a.ordem || 0) - (b.ordem || 0)),
     [indicadores, moduloId]
   );
 
@@ -65,16 +84,17 @@ export default function ProducaoCard({ ano, mes, indicadores, lancamentos, metas
 
   const getLanc = (indicadorId, m, setorIdParam) => {
     if (!indicadorId) return undefined;
-    return lancamentos.find(l =>
-      l.indicador_id === indicadorId &&
-      l.mes === m &&
-      (!setorIdParam || l.setor_id === setorIdParam)
-    );
+    return pickLancamentoMes(lancamentos, indicadorId, m, setorIdParam);
   };
 
   const getMeta = (indicadorId, sid) => {
     if (!sid || !indicadorId) return undefined;
-    return metas.find(m => m.indicador_id === indicadorId && m.setor_id === sid && m.ano === ano);
+    return metas.find(
+      (m) =>
+        idsMatch(m.indicador_id, indicadorId) &&
+        idsMatch(m.setor_id, sid) &&
+        Number(m.ano) === Number(ano)
+    );
   };
 
   const lancOcup = getLanc(idOcup, mesSelecionado, setorId);
@@ -85,7 +105,13 @@ export default function ProducaoCard({ ano, mes, indicadores, lancamentos, metas
   const metaPerm = getMeta(idPerm, setorId);
   const metaGiro = getMeta(idGiro, setorId);
 
-  const ocupacaoStatus = lancOcup?.valor >= 90 ? 'alta' : lancOcup?.valor >= 80 ? 'media' : 'normal';
+  const ocupacaoValor = lancOcup?.valor != null ? Number(lancOcup.valor) : null;
+  const ocupacaoStatus =
+    ocupacaoValor != null && ocupacaoValor >= 90
+      ? 'alta'
+      : ocupacaoValor != null && ocupacaoValor >= 80
+        ? 'media'
+        : 'normal';
 
   const chartData = MESES_CURTO.map((label, i) => {
     const m = i + 1;
@@ -160,7 +186,7 @@ export default function ProducaoCard({ ano, mes, indicadores, lancamentos, metas
         <div className="p-4 border-r border-border" style={{ borderLeft: '3px solid #ef4444' }}>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Taxa de Ocupação</p>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-3xl font-jakarta font-bold">{lancOcup?.valor ?? '—'}</span>
+            <span className="text-3xl font-jakarta font-bold">{ocupacaoValor ?? '—'}</span>
             <span className="text-sm text-muted-foreground">%</span>
           </div>
           {metaOcup?.valor != null && (
@@ -182,7 +208,9 @@ export default function ProducaoCard({ ano, mes, indicadores, lancamentos, metas
         <div className="p-4 border-r border-border" style={{ borderLeft: '3px solid #06b6d4' }}>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Média de Permanência</p>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-3xl font-jakarta font-bold">{lancPerm?.valor ?? '—'}</span>
+            <span className="text-3xl font-jakarta font-bold">
+              {lancPerm?.valor != null ? Number(lancPerm.valor) : '—'}
+            </span>
             <span className="text-sm text-muted-foreground">dias</span>
           </div>
           {metaPerm?.valor != null && (
@@ -193,7 +221,9 @@ export default function ProducaoCard({ ano, mes, indicadores, lancamentos, metas
         <div className="p-4" style={{ borderLeft: '3px solid #10b981' }}>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Giro de Leito</p>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-3xl font-jakarta font-bold">{lancGiro?.valor ?? '—'}</span>
+            <span className="text-3xl font-jakarta font-bold">
+              {lancGiro?.valor != null ? Number(lancGiro.valor) : '—'}
+            </span>
             <span className="text-sm text-muted-foreground">pac/leito</span>
           </div>
           {metaGiro?.valor != null && (

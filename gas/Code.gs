@@ -478,9 +478,7 @@ function processRequest_(body) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, ping: 'gas' })).setMimeType(
-    ContentService.MimeType.JSON
-  );
+  return HtmlService.createHtmlOutputFromFile('Index').setTitle('Gestão à Vista — Indicadores HU UEL');
 }
 
 function doPost(e) {

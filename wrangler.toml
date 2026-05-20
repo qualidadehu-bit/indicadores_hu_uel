@@ -3,5 +3,12 @@ name = "dashboardhu"
 main = "worker/src/index.ts"
 compatibility_date = "2024-05-11"
 
+# Frontend Vite (dist/) + API no mesmo deploy — https://dashboardhu.qualidade-hu.workers.dev
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [ "/api", "/health" ]
+
 # Segredos e URLs sensíveis: use `wrangler secret put` (produção) ou `.dev.vars` (local).
 # Não coloque GAS_WEBAPP_URL nem GAS_SECRET em [vars] — eles ficam fora do repositório.

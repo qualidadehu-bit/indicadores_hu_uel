@@ -4,7 +4,7 @@
  *
  * Uso:
  *   node scripts/test-worker-post.mjs
- *   WORKER_URL=http://127.0.0.1:8788 node scripts/test-worker-post.mjs
+ *   WORKER_URL=http://127.0.0.1:8788 node scripts/test-worker-post.mjs  (porta direta do Worker)
  *   node scripts/test-worker-post.mjs --login suaSenhaEscritorio
  *
  * Sobre o "segredo" (GAS_SECRET / API_SECRET):
@@ -15,7 +15,7 @@
  * Opcional: variável de ambiente JSON_BODY com string JSON completa para POST /api.
  */
 
-const DEFAULT_BASE = process.env.WORKER_URL || 'http://127.0.0.1:8787';
+const DEFAULT_BASE = process.env.WORKER_URL || 'http://127.0.0.1:8788';
 
 function parseArgs() {
   const args = process.argv.slice(2);
