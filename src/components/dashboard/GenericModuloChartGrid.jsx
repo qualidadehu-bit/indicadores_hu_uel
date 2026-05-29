@@ -21,8 +21,7 @@ import {
 } from 'recharts';
 import { Card, CardContent } from '@/components/ui/card';
 import BadgeStatusMeta from '@/components/BadgeStatusMeta';
-import BadgeTendencia from '@/components/BadgeTendencia';
-import { DIRECAO_META, MESES, STATUS_META, calcularStatusMeta, calcularTendencia } from '@/lib/indicadores';
+import { DIRECAO_META, MESES, STATUS_META, calcularStatusMeta } from '@/lib/indicadores';
 import {
   isRadarPercentQualidadeScale,
   RadarQualidadeChartWithLegend,
@@ -887,16 +886,8 @@ function SeriesChart(props) {
 function IndicadorKpiCard({ ind, setorId, mesAtual, getLancamento, getMeta }) {
   const metaRec = getMeta(ind.id, setorId);
   const lancAtual = getLancamento(ind.id, setorId, mesAtual);
-  const lancAnterior = mesAtual > 1 ? getLancamento(ind.id, setorId, mesAtual - 1) : null;
   const status = calcularStatusMeta(lancAtual?.valor, metaRec?.valor, ind.tipo_direcao_meta);
-  const valorAtual = parseLocaleNumber(lancAtual?.valor);
-  const valorAnterior = parseLocaleNumber(lancAnterior?.valor);
   const valorMeta = parseLocaleNumber(metaRec?.valor);
-  const variacaoPct =
-    valorAtual != null && valorAnterior != null && valorAnterior !== 0
-      ? ((valorAtual - valorAnterior) / Math.abs(valorAnterior)) * 100
-      : null;
-  const tendencia = calcularTendencia(valorAtual, valorAnterior, ind.tipo_direcao_meta);
   return (
     <Card className="shadow-sm border-border/80">
       <CardContent className="p-3 space-y-3">
@@ -904,7 +895,7 @@ function IndicadorKpiCard({ ind, setorId, mesAtual, getLancamento, getMeta }) {
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">{ind.label || ind.nome}</p>
           {ind.unidade ? <p className="text-[11px] text-muted-foreground">{ind.unidade}</p> : null}
         </div>
-        <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-md bg-muted/40 px-2 py-1.5">
             <p className="text-muted-foreground">Atual</p>
             <p className="font-semibold tabular-nums">{lancAtual?.valor ?? '—'}</p>
@@ -913,15 +904,8 @@ function IndicadorKpiCard({ ind, setorId, mesAtual, getLancamento, getMeta }) {
             <p className="text-muted-foreground">Meta</p>
             <p className="font-semibold tabular-nums">{valorMeta != null ? metaRec?.valor : '—'}</p>
           </div>
-          <div className="rounded-md bg-muted/40 px-2 py-1.5">
-            <p className="text-muted-foreground">Delta</p>
-            <p className="font-semibold tabular-nums">
-              {variacaoPct != null ? `${variacaoPct > 0 ? '+' : ''}${variacaoPct.toFixed(1)}%` : '—'}
-            </p>
-          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <BadgeTendencia tendencia={tendencia} variacao={variacaoPct ?? undefined} className={undefined} />
           <BadgeStatusMeta status={status} />
         </div>
       </CardContent>
