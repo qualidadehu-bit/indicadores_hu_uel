@@ -222,6 +222,9 @@ const TABLE_TEXT_COLOR = [35, 35, 35];
 const TABLE_NOTE_COLOR = [105, 105, 105];
 const TABLE_GRID_COLOR = [210, 222, 210];
 const TABLE_ROW_BG_ALT = [248, 251, 248];
+const TABLE_BLOCK_GAP = 8;
+const TABLE_BLOCK_TITLE_GAP = 3;
+const TABLE_BLOCK_TITLE_HEIGHT = 5;
 
 function getTableColumns(tipo) {
   if (tipo === 'mensal') {
@@ -650,6 +653,11 @@ async function gerarPDF({
     });
 
     const indicadoresSetor = filtrarIndicadoresPorSetorWhitelist(indicadores, setor);
+    let tableOnlyPageReady = false;
+    let tableOnlyCursorY = 30;
+    const drawTableOnlyPageHeader = () => {
+      drawModuleHeader(doc, `Relatório (Tabela) · ${nomeSetor}`, periodLabel);
+    };
 
     for (let moduloIdx = 0; moduloIdx < modsParaExportar.length; moduloIdx += 1) {
       const contentStart = nowMs();
@@ -680,7 +688,31 @@ async function gerarPDF({
         const conservativeGraphPrecheck = incluirGrafico && workUnitsEstimate >= GRAPH_BATCH_MEDIUM_WORK_UNITS;
         const redrawModuloHeader = () => drawModuleHeader(doc, `${modulo.nome} · ${nomeSetor}`, periodLabel);
 
-      const drawModuloTabela = async (yStart) => {
+      const drawModuloTabela = async (
+        yStart,
+        {
+          blockTitle = '',
+          pageStartY = 30,
+          onNewPage = null,
+        } = {}
+      ) => {
+        const titleText = String(blockTitle || '').trim();
+        const titleHeight = titleText ? TABLE_BLOCK_TITLE_HEIGHT + TABLE_BLOCK_TITLE_GAP : 0;
+
+        const drawBlockTitle = (baseY, continuation = false) => {
+          if (!titleText) return baseY;
+          const text = continuation ? `${titleText} (continuação)` : titleText;
+          doc.setFontSize(9.5);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(
+            PDF_THEME.tableHeaderText[0],
+            PDF_THEME.tableHeaderText[1],
+            PDF_THEME.tableHeaderText[2]
+          );
+          doc.text(text, 14, baseY + TABLE_BLOCK_TITLE_HEIGHT);
+          return baseY + TABLE_BLOCK_TITLE_HEIGHT + TABLE_BLOCK_TITLE_GAP;
+        };
+
         const drawTableSectionHeader = (baseY) => {
           let y = baseY;
           doc.setFontSize(9);
@@ -696,7 +728,6 @@ async function gerarPDF({
         };
 
         const sectionHeaderHeight = 5 + TABLE_HEADER_H + TABLE_HEADER_GAP;
-        const pageStartY = 30;
         const availableCurrentPage = Math.max(0, TABLE_PAGE_BOTTOM - yStart);
         const availableFreshPage = Math.max(0, TABLE_PAGE_BOTTOM - pageStartY);
         const rowLayouts = [];
@@ -707,15 +738,16 @@ async function gerarPDF({
           rowsTotalHeight += rowLayout.rowHeight;
           if ((idx + 1) % rowsYieldEvery === 0) await yieldToMainThread();
         }
-        const totalBlockHeight = sectionHeaderHeight + rowsTotalHeight;
+        const totalBlockHeight = titleHeight + sectionHeaderHeight + rowsTotalHeight + TABLE_BLOCK_GAP;
 
         // Regra principal: não repartir tabela quando ela cabe inteira.
         const drawWholeTable = (startY) => {
-          let y = drawTableSectionHeader(startY);
+          let y = drawBlockTitle(startY, false);
+          y = drawTableSectionHeader(y);
           rowLayouts.forEach((layout, idx) => {
             y = drawTableRow(doc, y, layout, idx);
           });
-          return y;
+          return y + TABLE_BLOCK_GAP;
         };
 
         if (totalBlockHeight <= availableCurrentPage) {
@@ -724,27 +756,29 @@ async function gerarPDF({
 
         if (totalBlockHeight <= availableFreshPage) {
           doc.addPage();
-          redrawModuloHeader();
+          if (typeof onNewPage === 'function') onNewPage();
           return drawWholeTable(pageStartY);
         }
 
         // Fallback controlado: tabela maior que página inteira.
         // Ainda assim, a quebra ocorre apenas entre linhas (nunca no meio da linha).
-        let y = drawTableSectionHeader(yStart);
+        let y = drawBlockTitle(yStart, false);
+        y = drawTableSectionHeader(y);
         for (let idx = 0; idx < rowLayouts.length; idx++) {
           const rowLayout = rowLayouts[idx];
           const nextY = y + rowLayout.rowHeight;
           if (nextY > TABLE_PAGE_BOTTOM) {
             doc.addPage();
-            redrawModuloHeader();
-            y = drawTableSectionHeader(pageStartY);
+            if (typeof onNewPage === 'function') onNewPage();
+            y = drawBlockTitle(pageStartY, true);
+            y = drawTableSectionHeader(y);
           }
           y = drawTableRow(doc, y, rowLayout, idx);
           if ((idx + 1) % rowsYieldEvery === 0) {
             await yieldToMainThread();
           }
         }
-        return y;
+        return y + TABLE_BLOCK_GAP;
       };
 
       const chartLayout = isIras
@@ -956,7 +990,7 @@ async function gerarPDF({
       if (fluxoAmbosEfetivo) {
         doc.addPage();
         drawModuleHeader(doc, `${modulo.nome} · ${nomeSetor}`, periodLabel);
-        let y = await drawModuloTabela(30);
+        let y = await drawModuloTabela(30, { onNewPage: redrawModuloHeader });
 
         if (chartCanvas && !shouldUseTableFallback) {
           let chartY = y + CHART_AFTER_TABLE_GAP;
@@ -1015,9 +1049,17 @@ async function gerarPDF({
           metrics.modulesGraphOk += 1;
         }
       } else if (incluirTabela) {
-        doc.addPage();
-        drawModuleHeader(doc, `${modulo.nome} · ${nomeSetor}`, periodLabel);
-        await drawModuloTabela(30);
+        if (!tableOnlyPageReady) {
+          doc.addPage();
+          drawTableOnlyPageHeader();
+          tableOnlyPageReady = true;
+          tableOnlyCursorY = 30;
+        }
+        tableOnlyCursorY = await drawModuloTabela(tableOnlyCursorY, {
+          blockTitle: modulo.nome,
+          pageStartY: 30,
+          onNewPage: drawTableOnlyPageHeader,
+        });
       } else if (incluirGrafico) {
         doc.addPage();
         drawModuleHeader(doc, `${modulo.nome} · ${nomeSetor}`, periodLabel);
