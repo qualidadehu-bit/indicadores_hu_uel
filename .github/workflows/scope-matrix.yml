@@ -1,0 +1,46 @@
+name: Scope Matrix Report
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  scope-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Run production build
+        run: npm run build
+
+      - name: Run scope matrix report
+        run: npm run ci:scope-matrix
+
+      - name: Run security contract
+        run: npm run test:security-contract
+
+      - name: Upload scope matrix artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scope-matrix-report
+          path: reports/scope-matrix.json
+          if-no-files-found: warn

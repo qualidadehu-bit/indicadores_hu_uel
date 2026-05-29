@@ -1,0 +1,184 @@
+{
+  "ok": true,
+  "total_scenarios": 29,
+  "failed_scenarios": 0,
+  "sections": [
+    {
+      "title": "escopo",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "cases": [
+        {
+          "name": "visualizar comissoes exato",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "alias acao administrar => admin",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "alias dashboard com acento",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "grupo wildcard permite qualquer grupo",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "grupo diferente bloqueia",
+          "ok": true,
+          "detail": "  expected=false\n  frontend=false\n  worker=false"
+        },
+        {
+          "name": "acao wildcard permite",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "dashboard wildcard permite",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "sem regras mantém legado",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "json invalido mantém legado",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        },
+        {
+          "name": "perfil nao gestor sempre permitido",
+          "ok": true,
+          "detail": "  expected=true\n  frontend=true\n  worker=true"
+        }
+      ]
+    },
+    {
+      "title": "leitura pública",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "cases": [
+        {
+          "name": "sem filtro dashboard_scope => legado",
+          "ok": true,
+          "detail": "  expectedScope=assistencial\n  gotScope=assistencial"
+        },
+        {
+          "name": "filtro comissoes => leitura publica comissoes",
+          "ok": true,
+          "detail": "  expectedScope=comissoes\n  gotScope=comissoes"
+        },
+        {
+          "name": "alias dashboard com acento => comissoes",
+          "ok": true,
+          "detail": "  expectedScope=comissoes\n  gotScope=comissoes"
+        },
+        {
+          "name": "filtro assistencial => legado",
+          "ok": true,
+          "detail": "  expectedScope=assistencial\n  gotScope=assistencial"
+        },
+        {
+          "name": "filtro invalido => fallback legado",
+          "ok": true,
+          "detail": "  expectedScope=assistencial\n  gotScope=assistencial"
+        }
+      ]
+    },
+    {
+      "title": "mutação sem sessão",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "cases": [
+        {
+          "name": "create Indicador sem sessão => bloqueado",
+          "ok": true,
+          "detail": "  expectedAllowed=false\n  gotAllowed=false"
+        },
+        {
+          "name": "update Lancamento sem sessão => bloqueado",
+          "ok": true,
+          "detail": "  expectedAllowed=false\n  gotAllowed=false"
+        },
+        {
+          "name": "delete Meta sem sessão => bloqueado",
+          "ok": true,
+          "detail": "  expectedAllowed=false\n  gotAllowed=false"
+        },
+        {
+          "name": "create Modulo sem sessão => bloqueado",
+          "ok": true,
+          "detail": "  expectedAllowed=false\n  gotAllowed=false"
+        },
+        {
+          "name": "list Indicador sem sessão => permitido (somente leitura)",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  gotAllowed=true"
+        },
+        {
+          "name": "filter Lancamento sem sessão => permitido (somente leitura)",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  gotAllowed=true"
+        },
+        {
+          "name": "create Setor sem sessão => permitido por não escopada",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  gotAllowed=true"
+        }
+      ]
+    },
+    {
+      "title": "mutação com sessão",
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "cases": [
+        {
+          "name": "gestor sem regras em mutação escopada => legado permitido",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  frontendAllowed=true\n  workerAllowed=true"
+        },
+        {
+          "name": "gestor com regra incompatível em edição => bloqueado",
+          "ok": true,
+          "detail": "  expectedAllowed=false\n  frontendAllowed=false\n  workerAllowed=false"
+        },
+        {
+          "name": "gestor com regra compatível em edição => permitido",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  frontendAllowed=true\n  workerAllowed=true"
+        },
+        {
+          "name": "gestor com admin em comissoes => permitido",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  frontendAllowed=true\n  workerAllowed=true"
+        },
+        {
+          "name": "lancar_dados com grupo diferente => bloqueado",
+          "ok": true,
+          "detail": "  expectedAllowed=false\n  frontendAllowed=false\n  workerAllowed=false"
+        },
+        {
+          "name": "lancar_dados com grupo wildcard => permitido",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  frontendAllowed=true\n  workerAllowed=true"
+        },
+        {
+          "name": "alias administrar em mutação => permitido",
+          "ok": true,
+          "detail": "  expectedAllowed=true\n  frontendAllowed=true\n  workerAllowed=true"
+        }
+      ]
+    }
+  ]
+}

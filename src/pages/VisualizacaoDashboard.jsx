@@ -1,9 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/api/apiClient';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, TrendingDown, AlertTriangle, CheckCircle2, ChevronLeft } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, TrendingDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Link } from 'react-router-dom';
 import { MESES, MESES_COMPLETO, calcularStatusMeta, STATUS_META, buildAnosDisponiveis } from '@/lib/indicadores';
@@ -20,56 +22,153 @@ import {
   filtrarIndicadoresPorSetorWhitelist,
   indicadorIdsWhitelistSetor,
 } from '@/lib/indicadorDivisao';
-import { findModuloPorDashboardKind, getModuloDashboardKind } from '@/lib/moduloTipoUi';
+import { getModuloDashboardKind } from '@/lib/moduloTipoUi';
+import { coveredIndicadorIdsBySpecialCard } from '@/lib/dashboardSpecialCoverage';
+import {
+  DASHBOARD_SCOPE_LEGACY,
+  filtrarIndicadoresPorDashboardScope,
+  filtrarModulosPorDashboardScope,
+} from '@/lib/dashboardScope';
+import { ENTITY_TYPE_SETOR } from '@/lib/entityType';
+import { useDropdownClose } from '@/hooks/use-dropdown-close';
 
 const ANOS = buildAnosDisponiveis();
+
+function sameId(a, b) {
+  return String(a ?? '') === String(b ?? '');
+}
+
+function toOrdemNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
 
 export default function VisualizacaoDashboard() {
   const [ano, setAno] = useState(new Date().getFullYear());
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [divisaoSelecionada, setDivisaoSelecionada] = useState('todas');
-  const [setorSelecionado, setSetorSelecionado] = useState('todos');
+  const [setoresSelecionados, setSetoresSelecionados] = useState([]);
+  const [showSetorMenu, setShowSetorMenu] = useState(false);
   const [moduloSelecionado, setModuloSelecionado] = useState('todos');
+  const dashboardScopeAtivo = DASHBOARD_SCOPE_LEGACY;
+  const domainType = ENTITY_TYPE_SETOR;
+  const setorMenuRef = useDropdownClose(showSetorMenu, () => setShowSetorMenu(false));
 
-  const { data: setores = [] } = useQuery({ queryKey: ['setores-pub'], queryFn: () => api.entities.Setor.list() });
-  const { data: modulos = [] } = useQuery({ queryKey: ['modulos-pub'], queryFn: () => api.entities.Modulo.list() });
-  const { data: indicadores = [] } = useQuery({ queryKey: ['indicadores-pub'], queryFn: () => api.entities.Indicador.list() });
-  const { data: lancamentos = [] } = useQuery({ queryKey: ['lancamentos-pub', ano], queryFn: () => api.entities.Lancamento.filter({ ano }) });
-  const { data: metas = [] } = useQuery({ queryKey: ['metas-pub', ano], queryFn: () => api.entities.Meta.filter({ ano }) });
-
-  const setorContextoId = setorSelecionado !== 'todos' ? setorSelecionado : null;
-
-  const divisaoFiltroInd = useMemo(
-    () => divisaoNomeParaFiltroIndicadores(setores, setorSelecionado, divisaoSelecionada),
-    [setores, setorSelecionado, divisaoSelecionada]
+  const { data: setores = [] } = useQuery({
+    queryKey: ['setores-pub', domainType],
+    queryFn: () => api.entities.Setor.filter({ entity_type: domainType }),
+  });
+  const { data: modulos = [] } = useQuery({
+    queryKey: ['modulos-pub', domainType],
+    queryFn: () => api.entities.Modulo.filter({ entity_type: domainType }),
+  });
+  const { data: indicadores = [] } = useQuery({
+    queryKey: ['indicadores-pub', domainType],
+    queryFn: () => api.entities.Indicador.filter({ entity_type: domainType }),
+  });
+  const modulosById = useMemo(
+    () => new Map(modulos.map((m) => [String(m.id), m])),
+    [modulos]
   );
-  const setorContextoObj = useMemo(() => {
-    if (!setorContextoId) return null;
-    return setores.find((s) => String(s.id) === String(setorContextoId)) || null;
-  }, [setores, setorContextoId]);
+  /** @type {Array<{ id: string|number, nome?: string } & Record<string, unknown>>} */
+  const modulosScoped = useMemo(
+    () => /** @type {Array<{ id: string|number, nome?: string } & Record<string, unknown>>} */ (
+      filtrarModulosPorDashboardScope(modulos, dashboardScopeAtivo)
+        .slice()
+        .sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem))
+    ),
+    [modulos, dashboardScopeAtivo]
+  );
+  const indicadoresScoped = useMemo(
+    () =>
+      filtrarIndicadoresPorDashboardScope(indicadores, modulosById, dashboardScopeAtivo)
+        .slice()
+        .sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem)),
+    [indicadores, modulosById, dashboardScopeAtivo]
+  );
 
-  const indicadoresAposDivisao = useMemo(
-    () => filtrarIndicadoresPorDivisao(indicadores, divisaoFiltroInd),
-    [indicadores, divisaoFiltroInd]
-  );
-  const indicadoresFiltrados = useMemo(
-    () => filtrarIndicadoresPorSetorWhitelist(indicadoresAposDivisao, setorContextoObj),
-    [indicadoresAposDivisao, setorContextoObj]
-  );
+  const { data: lancamentos = [] } = useQuery({
+    queryKey: ['lancamentos-pub', domainType, ano],
+    queryFn: () => api.entities.Lancamento.filter({ ano, entity_type: domainType }),
+  });
+  const { data: metas = [] } = useQuery({
+    queryKey: ['metas-pub', domainType, ano],
+    queryFn: () => api.entities.Meta.filter({ ano, entity_type: domainType }),
+  });
 
   // Agrupar setores por divisão
   const divisoes = [...new Set(setores.map(s => s.divisao))].sort();
   const setoresDaDivisao = divisaoSelecionada === 'todas'
     ? setores
     : setores.filter(s => s.divisao === divisaoSelecionada);
+  const setorIdsSelecionadosNaDivisao = useMemo(() => {
+    const idsDaDivisao = new Set(setoresDaDivisao.map((s) => String(s.id)));
+    return setoresSelecionados.filter((sid) => idsDaDivisao.has(String(sid)));
+  }, [setoresSelecionados, setoresDaDivisao]);
+  const setorIdsAtivos = useMemo(() => {
+    if (setorIdsSelecionadosNaDivisao.length > 0) return setorIdsSelecionadosNaDivisao.map(String);
+    return setoresDaDivisao.map((s) => String(s.id));
+  }, [setorIdsSelecionadosNaDivisao, setoresDaDivisao]);
+  const setorContextoId = setorIdsSelecionadosNaDivisao.length === 1 ? setorIdsSelecionadosNaDivisao[0] : null;
 
-  const setorParaGrafico = setorContextoId;
+  useEffect(() => {
+    const idsValidos = new Set(setoresDaDivisao.map((s) => String(s.id)));
+    setSetoresSelecionados((prev) => prev.filter((sid) => idsValidos.has(String(sid))));
+  }, [setoresDaDivisao]);
+
+  const divisaoFiltroInd = useMemo(
+    () => divisaoNomeParaFiltroIndicadores(setores, setorContextoId || 'todos', divisaoSelecionada),
+    [setores, setorContextoId, divisaoSelecionada]
+  );
+  const indicadoresAposDivisao = useMemo(
+    () =>
+      filtrarIndicadoresPorDivisao(indicadoresScoped, divisaoFiltroInd)
+        .slice()
+        .sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem)),
+    [indicadoresScoped, divisaoFiltroInd]
+  );
+  const setorContextoObj = useMemo(() => {
+    if (!setorContextoId) return null;
+    return setoresDaDivisao.find((s) => String(s.id) === String(setorContextoId)) || null;
+  }, [setoresDaDivisao, setorContextoId]);
+  const indicadoresPorSetorId = useMemo(() => {
+    const map = new Map();
+    for (const setor of setoresDaDivisao) {
+      map.set(
+        String(setor.id),
+        filtrarIndicadoresPorSetorWhitelist(indicadoresAposDivisao, setor)
+          .slice()
+          .sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem))
+      );
+    }
+    return map;
+  }, [setoresDaDivisao, indicadoresAposDivisao]);
+  const indicadoresFiltrados = useMemo(() => {
+    if (setorContextoId && indicadoresPorSetorId.has(String(setorContextoId))) {
+      return indicadoresPorSetorId.get(String(setorContextoId)) || [];
+    }
+    const byId = new Map();
+    for (const sid of setorIdsAtivos) {
+      const inds = indicadoresPorSetorId.get(String(sid)) || [];
+      inds.forEach((ind) => byId.set(String(ind.id), ind));
+    }
+    return [...byId.values()].sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+  }, [setorContextoId, setorIdsAtivos, indicadoresPorSetorId]);
 
   const getLancamento = (indicadorId, sid, m) =>
-    sid ? lancamentos.find(l => l.indicador_id === indicadorId && l.setor_id === sid && l.mes === m) : undefined;
+    sid
+      ? lancamentos.find(
+          (l) =>
+            String(l.indicador_id) === String(indicadorId) &&
+            String(l.setor_id) === String(sid) &&
+            Number(l.mes) === Number(m)
+        )
+      : undefined;
 
   const getMeta = (indicadorId, sid) =>
-    sid ? metas.find(m => m.indicador_id === indicadorId && m.setor_id === sid) : undefined;
+    sid
+      ? metas.find((m) => String(m.indicador_id) === String(indicadorId) && String(m.setor_id) === String(sid))
+      : undefined;
 
   const buildChartData = (indicadorId, setorId) =>
     MESES.map((m, i) => {
@@ -79,24 +178,80 @@ export default function VisualizacaoDashboard() {
     });
 
   const kpis = (() => {
-    let ok = 0, atencao = 0, critico = 0, semDados = 0;
-    indicadoresFiltrados.forEach(ind => {
-      const metaRec = getMeta(ind.id, setorContextoId);
-      const lancRec = getLancamento(ind.id, setorContextoId, mes);
-      const direcao =
-        typeof ind.tipo_direcao_meta === 'string' ? ind.tipo_direcao_meta : undefined;
-      const status = calcularStatusMeta(lancRec?.valor, metaRec?.valor, direcao);
-      if (status === STATUS_META.OK) ok++;
-      else if (status === STATUS_META.ATENCAO) atencao++;
-      else if (status === STATUS_META.CRITICO) critico++;
-      else semDados++;
-    });
+    let ok = 0;
+    let atencao = 0;
+    let critico = 0;
+    let semDados = 0;
+    for (const sid of setorIdsAtivos) {
+      const inds = indicadoresPorSetorId.get(String(sid)) || [];
+      inds.forEach((ind) => {
+        const metaRec = getMeta(ind.id, sid);
+        const lancRec = getLancamento(ind.id, sid, mes);
+        const direcao = typeof ind.tipo_direcao_meta === 'string' ? ind.tipo_direcao_meta : undefined;
+        const status = calcularStatusMeta(lancRec?.valor, metaRec?.valor, direcao);
+        if (status === STATUS_META.OK) ok++;
+        else if (status === STATUS_META.ATENCAO) atencao++;
+        else if (status === STATUS_META.CRITICO) critico++;
+        else semDados++;
+      });
+    }
     return { ok, atencao, critico, semDados };
   })();
 
+  const setoresRender = useMemo(
+    () =>
+      setorIdsAtivos.map((sid) => ({
+        id: String(sid),
+        nome: String(setoresDaDivisao.find((s) => String(s.id) === String(sid))?.nome || `Setor ${sid}`),
+      })),
+    [setorIdsAtivos, setoresDaDivisao]
+  );
+  const toggleSetor = (sid) => {
+    const id = String(sid);
+    setSetoresSelecionados((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+  const labelSetoresSelecionados = (() => {
+    if (setorIdsSelecionadosNaDivisao.length === 0) return 'Todos os setores';
+    if (setorIdsSelecionadosNaDivisao.length === 1) {
+      const setor = setoresDaDivisao.find((s) => String(s.id) === String(setorIdsSelecionadosNaDivisao[0]));
+      return String(setor?.nome || '1 setor');
+    }
+    return `${setorIdsSelecionadosNaDivisao.length} setores`;
+  })();
+  const getSetorLayout = (cardsCount) => {
+    if (cardsCount <= 1) {
+      return {
+        containerClass: 'block',
+        itemClass: 'w-full',
+      };
+    }
+    if (cardsCount === 2) {
+      return {
+        containerClass: 'grid grid-cols-1 xl:grid-cols-2 gap-6',
+        itemClass: 'w-full min-w-0',
+      };
+    }
+    return {
+      containerClass: 'flex overflow-x-auto space-x-6 pb-4 snap-x',
+      itemClass: 'w-[85vw] xl:w-[46rem] min-w-[22rem] snap-start shrink-0',
+    };
+  };
+
   const modulosFiltrados = moduloSelecionado === 'todos'
-    ? modulos
-    : modulos.filter(m => m.id === moduloSelecionado);
+    ? modulosScoped
+    : modulosScoped.filter((m) => sameId(m.id, moduloSelecionado));
+
+  const moduloSelecionadoDebug = useMemo(() => {
+    if (moduloSelecionado === 'todos') return null;
+    const moduloId = String(moduloSelecionado);
+    return {
+      totalNoEscopo: indicadoresScoped.filter((i) => sameId(i.modulo_id, moduloId)).length,
+      aposDivisao: indicadoresAposDivisao.filter((i) => sameId(i.modulo_id, moduloId)).length,
+      aposWhitelist: indicadoresFiltrados.filter((i) => sameId(i.modulo_id, moduloId)).length,
+    };
+  }, [moduloSelecionado, indicadoresScoped, indicadoresAposDivisao, indicadoresFiltrados]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -133,7 +288,13 @@ export default function VisualizacaoDashboard() {
                   {ANOS.map(a => <SelectItem key={a} value={String(a)}>{a}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={divisaoSelecionada} onValueChange={(v) => { setDivisaoSelecionada(v); setSetorSelecionado('todos'); }}>
+              <Select
+                value={divisaoSelecionada}
+                onValueChange={(v) => {
+                  setDivisaoSelecionada(v);
+                  setSetoresSelecionados([]);
+                }}
+              >
                 <SelectTrigger className="h-8 w-40 text-xs bg-sidebar-accent border-sidebar-border text-sidebar-foreground">
                   <SelectValue placeholder="Divisão" />
                 </SelectTrigger>
@@ -142,22 +303,43 @@ export default function VisualizacaoDashboard() {
                   {divisoes.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={setorSelecionado} onValueChange={setSetorSelecionado}>
-                <SelectTrigger className="h-8 w-40 text-xs bg-sidebar-accent border-sidebar-border text-sidebar-foreground">
-                  <SelectValue placeholder="Setor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos os Setores</SelectItem>
-                  {setoresDaDivisao.map(s => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="relative" ref={setorMenuRef}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 text-xs justify-between w-48 font-normal bg-sidebar-accent border-sidebar-border text-sidebar-foreground hover:bg-sidebar-accent/80"
+                  onClick={() => setShowSetorMenu((v) => !v)}
+                >
+                  <span className="truncate">{labelSetoresSelecionados}</span>
+                  <ChevronDown className="w-4 h-4 opacity-70" />
+                </Button>
+                {showSetorMenu && (
+                  <div className="absolute right-0 mt-2 w-64 rounded-md border bg-popover text-popover-foreground shadow-md z-50 p-3">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Setores</p>
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {setoresDaDivisao.map((s) => {
+                        const sid = String(s.id);
+                        return (
+                          <label key={sid} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <Checkbox
+                              checked={setorIdsSelecionadosNaDivisao.includes(sid)}
+                              onCheckedChange={() => toggleSetor(sid)}
+                            />
+                            <span>{String(s.nome)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
               <Select value={moduloSelecionado} onValueChange={setModuloSelecionado}>
                 <SelectTrigger className="h-8 w-44 text-xs bg-sidebar-accent border-sidebar-border text-sidebar-foreground">
                   <SelectValue placeholder="Módulo" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todos os Módulos</SelectItem>
-                  {modulos.map(m => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}
+                  {modulosScoped.map(m => <SelectItem key={String(m.id)} value={String(m.id)}>{m.nome}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -172,17 +354,26 @@ export default function VisualizacaoDashboard() {
           <p className="text-muted-foreground text-sm mt-0.5">{MESES_COMPLETO[mes - 1]} de {ano}</p>
         </div>
 
-        {!setorContextoId && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Selecione um setor nos filtros para comparar indicadores com a meta de cada setor. Com &quot;Todos os Setores&quot;, os KPIs e linhas de meta não são calculados.
+        {setorIdsSelecionadosNaDivisao.length === 0 && setoresRender.length > 1 ? (
+          <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+            Comparativo multi-setor ativo: os módulos serão exibidos lado a lado para todos os setores visíveis da divisão.
           </div>
-        )}
+        ) : null}
 
         {setorContextoObj && indicadorIdsWhitelistSetor(setorContextoObj) && indicadoresFiltrados.length === 0 && (
           <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
             Este setor tem lista restrita de indicadores e nenhum indicador aplicável ficou visível. Ajuste em Configuração → Divisões e Setores.
           </div>
         )}
+        {moduloSelecionado !== 'todos' &&
+          moduloSelecionadoDebug &&
+          moduloSelecionadoDebug.totalNoEscopo > 0 &&
+          moduloSelecionadoDebug.aposWhitelist === 0 && (
+            <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+              O módulo selecionado possui indicadores no escopo, mas foi filtrado antes da renderização.
+              Verifique divisão do indicador (`divisoes`) e lista branca do setor (`indicador_ids`).
+            </div>
+          )}
 
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -218,117 +409,221 @@ export default function VisualizacaoDashboard() {
                   ? 'Nenhum indicador configurado'
                   : indicadoresAposDivisao.length === 0
                     ? 'Nenhum indicador para a divisão / filtro atual'
-                    : 'Nenhum indicador visível para este setor'}
+                    : 'Nenhum indicador visível para os setores selecionados'}
               </p>
             </CardContent>
           </Card>
         ) : (
           modulosFiltrados.map(modulo => {
-            const indsDoModulo = indicadoresFiltrados.filter(i => i.modulo_id === modulo.id);
-            if (indsDoModulo.length === 0) return null;
-
             const dashboardKind = getModuloDashboardKind(modulo);
+            const indsDoModulo = indicadoresFiltrados
+              .filter((i) => String(i.modulo_id) === String(modulo.id))
+              .sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+            if (indsDoModulo.length === 0) return null;
+            const coveredIds = coveredIndicadorIdsBySpecialCard(dashboardKind, indsDoModulo);
+            const hasSpecialCoverage = coveredIds.size > 0;
+            const layout = getSetorLayout(setoresRender.length);
 
-            if (dashboardKind === 'iras') {
-              const moduloNr32 = findModuloPorDashboardKind(modulos, 'nr32');
-              const indsNr32 = moduloNr32 ? indicadoresFiltrados.filter(i => i.modulo_id === moduloNr32.id) : [];
+            const renderSetorBadge = (setorNome) => (
+              <Badge variant="outline" className="mb-2 text-xs">{setorNome}</Badge>
+            );
+
+            if (dashboardKind === 'iras' && hasSpecialCoverage) {
               return (
-                <IrasCard
-                  key={modulo.id}
-                  ano={ano}
-                  mes={mes}
-                  indicadores={indsDoModulo}
-                  lancamentos={lancamentos}
-                  setorId={setorParaGrafico}
-                  indicadoresNr32={indsNr32}
-                  moduloId={modulo.id}
-                />
+                <div key={String(modulo.id)}>
+                  <div className={layout.containerClass}>
+                    {setoresRender.map((setorItem) => {
+                      const indsSetor = (indicadoresPorSetorId.get(setorItem.id) || []).filter(
+                        (i) => String(i.modulo_id) === String(modulo.id) && coveredIds.has(String(i.id))
+                      ).sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+                      if (indsSetor.length === 0) return null;
+                      return (
+                        <div key={`${modulo.id}-${setorItem.id}`} className={layout.itemClass}>
+                          {renderSetorBadge(setorItem.nome)}
+                          <IrasCard
+                            ano={ano}
+                            mes={mes}
+                            indicadores={indsSetor}
+                            lancamentos={lancamentos}
+                            setorId={setorItem.id}
+                            moduloId={modulo.id}
+                            getLancamento={(indicadorId, sid, m) =>
+                              getLancamento(indicadorId, sid || setorItem.id, m)
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             }
 
-            if (dashboardKind === 'eventos_adversos') {
+            if (dashboardKind === 'eventos_adversos' && hasSpecialCoverage) {
               return (
-                <EventosAdversosCard
-                  key={modulo.id}
-                  ano={ano}
-                  mes={mes}
-                  indicadores={indsDoModulo}
-                  lancamentos={lancamentos}
-                  setorId={setorParaGrafico}
-                  moduloId={modulo.id}
-                />
+                <div key={String(modulo.id)}>
+                  <div className={layout.containerClass}>
+                    {setoresRender.map((setorItem) => {
+                      const indsSetor = (indicadoresPorSetorId.get(setorItem.id) || []).filter(
+                        (i) => String(i.modulo_id) === String(modulo.id) && coveredIds.has(String(i.id))
+                      ).sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+                      if (indsSetor.length === 0) return null;
+                      return (
+                        <div key={`${modulo.id}-${setorItem.id}`} className={layout.itemClass}>
+                          {renderSetorBadge(setorItem.nome)}
+                          <EventosAdversosCard
+                            ano={ano}
+                            mes={mes}
+                            indicadores={indsSetor}
+                            lancamentos={lancamentos}
+                            setorId={setorItem.id}
+                            moduloId={modulo.id}
+                            getLancamento={(indicadorId, sid, m) =>
+                              getLancamento(indicadorId, sid || setorItem.id, m)
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             }
-
-            if (dashboardKind === 'nr32') return null;
 
             if (dashboardKind === 'misp') {
               return (
-                <MispCard
-                  key={modulo.id}
-                  ano={ano}
-                  mes={mes}
-                  indicadores={indsDoModulo}
-                  lancamentos={lancamentos}
-                  setorId={setorParaGrafico}
-                  moduloId={modulo.id}
-                  modulo={modulo}
-                />
+                <div key={String(modulo.id)}>
+                  <div className={layout.containerClass}>
+                    {setoresRender.map((setorItem) => {
+                      const indsSetor = (indicadoresPorSetorId.get(setorItem.id) || []).filter((i) =>
+                        sameId(i.modulo_id, modulo.id)
+                      ).sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+                      if (indsSetor.length === 0) return null;
+                      return (
+                        <div key={`${modulo.id}-${setorItem.id}`} className={layout.itemClass}>
+                          {renderSetorBadge(setorItem.nome)}
+                          <MispCard
+                            ano={ano}
+                            mes={mes}
+                            indicadores={indsSetor}
+                            lancamentos={lancamentos}
+                            setorId={setorItem.id}
+                            moduloId={modulo.id}
+                            modulo={modulo}
+                            getLancamento={(indicadorId, sid, m) =>
+                              getLancamento(indicadorId, sid || setorItem.id, m)
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             }
 
-            if (dashboardKind === 'producao') {
+            if (dashboardKind === 'producao' && hasSpecialCoverage) {
               return (
-                <ProducaoCard
-                  key={modulo.id}
-                  ano={ano}
-                  mes={mes}
-                  indicadores={indicadoresFiltrados}
-                  lancamentos={lancamentos}
-                  metas={metas}
-                  setorId={setorParaGrafico}
-                  moduloId={modulo.id}
-                />
+                <div key={String(modulo.id)}>
+                  <div className={layout.containerClass}>
+                    {setoresRender.map((setorItem) => {
+                      const indsSetor = (indicadoresPorSetorId.get(setorItem.id) || []).filter(
+                        (i) => String(i.modulo_id) === String(modulo.id) && coveredIds.has(String(i.id))
+                      ).sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+                      if (indsSetor.length === 0) return null;
+                      return (
+                        <div key={`${modulo.id}-${setorItem.id}`} className={layout.itemClass}>
+                          {renderSetorBadge(setorItem.nome)}
+                          <ProducaoCard
+                            ano={ano}
+                            mes={mes}
+                            indicadores={indsSetor}
+                            lancamentos={lancamentos}
+                            metas={metas}
+                            setorIds={[setorItem.id]}
+                            setores={setoresDaDivisao}
+                            moduloId={modulo.id}
+                            anosSelecionados={[ano]}
+                            getLancamentoComparado={(indicadorId, m) =>
+                              getLancamento(indicadorId, setorItem.id, m)
+                            }
+                            getMetaComparada={(indicadorId) => getMeta(indicadorId, setorItem.id)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             }
 
             if (usesDashboardBundle(modulo)) {
               return (
-                <ModuloDashboardBundle
-                  key={modulo.id}
-                  modulo={modulo}
-                  indicadores={indsDoModulo}
-                  lancamentos={lancamentos}
-                  metas={metas}
-                  ano={ano}
-                  mes={mes}
-                  setorId={setorParaGrafico}
-                  moduloId={modulo.id}
-                />
+                <div key={String(modulo.id)}>
+                  <div className={layout.containerClass}>
+                    {setoresRender.map((setorItem) => {
+                      const indsSetor = (indicadoresPorSetorId.get(setorItem.id) || []).filter((i) =>
+                        sameId(i.modulo_id, modulo.id)
+                      ).sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+                      if (indsSetor.length === 0) return null;
+                      return (
+                        <div key={`${modulo.id}-${setorItem.id}`} className={layout.itemClass}>
+                          {renderSetorBadge(setorItem.nome)}
+                          <ModuloDashboardBundle
+                            modulo={modulo}
+                            indicadores={indsSetor}
+                            lancamentos={lancamentos}
+                            metas={metas}
+                            ano={ano}
+                            mes={mes}
+                            setorId={setorItem.id}
+                            moduloId={modulo.id}
+                            getLancamento={(indicadorId, sid, m) => getLancamento(indicadorId, sid || setorItem.id, m)}
+                            getMeta={(indicadorId, sid) => getMeta(indicadorId, sid || setorItem.id)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             }
 
             return (
-              <Card key={modulo.id} className="overflow-hidden">
-                <CardHeader className="pb-2 bg-secondary/30">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-jakarta">{modulo.nome}</CardTitle>
-                    <Badge variant="outline" className="text-xs">{indsDoModulo.length} indicadores</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-4">
-                  <GenericModuloChartGrid
-                    modulo={modulo}
-                    indsDoModulo={indsDoModulo}
-                    setorParaGrafico={setorParaGrafico}
-                    mesAtual={mes}
-                    anoAtual={ano}
-                    buildChartData={buildChartData}
-                    getMeta={getMeta}
-                    getLancamento={getLancamento}
-                  />
-                </CardContent>
-              </Card>
+              <div key={String(modulo.id)}>
+                <div className={layout.containerClass}>
+                  {setoresRender.map((setorItem) => {
+                    const indsSetor = (indicadoresPorSetorId.get(setorItem.id) || []).filter((i) =>
+                      sameId(i.modulo_id, modulo.id)
+                    ).sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
+                    if (indsSetor.length === 0) return null;
+                    return (
+                      <Card key={`${modulo.id}-${setorItem.id}`} className={`${layout.itemClass} overflow-hidden`}>
+                        <CardHeader className="pb-2 bg-secondary/30">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-base font-jakarta">{modulo.nome}</CardTitle>
+                            <Badge variant="outline" className="text-xs">
+                              {indsSetor.length} indicadores · {setorItem.nome}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-4">
+                          <GenericModuloChartGrid
+                            modulo={modulo}
+                            indsDoModulo={indsSetor}
+                            setorParaGrafico={setorItem.id}
+                            mesAtual={mes}
+                            anoAtual={ano}
+                            buildChartData={buildChartData}
+                            getMeta={getMeta}
+                            getLancamento={getLancamento}
+                          />
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
             );
           })
         )}

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ColorPicker2D from '@/components/ui/ColorPicker2D';
 import {
   Dialog,
   DialogContent,
@@ -27,7 +28,6 @@ import { getSetoresVisiveisParaUsuario, getDivisoesScopeParaGestor } from '@/lib
 import { getModuloDashboardKind, storedTipoUiForSelect, TIPO_UI_SELECT_OPTIONS } from '@/lib/moduloTipoUi';
 import {
   parseRadarFaixasRaw,
-  serializeRadarFaixas,
   defaultRadarFaixasEditorRows,
   formatFaixaRange,
   radarFaixasPatchIfEditing,
@@ -37,6 +37,22 @@ import { jsPDF } from 'jspdf';
 import { normalizeTipoGrafico, tipoGraficoEfetivoIndicador } from '@/lib/graficoTipo';
 import { parsePizzaFatiasRaw, serializePizzaFatias, duplicatePizzaFatiaIndicadorIds } from '@/lib/pizzaFatias';
 import { normalizeSheetId } from '@/lib/sheetsEntityNormalize';
+import {
+  DASHBOARD_SCOPE_COMISSOES,
+  DASHBOARD_SCOPE_LEGACY,
+  DASHBOARD_SCOPE_PRATICAS_MEDICAS,
+  DASHBOARD_SCOPE_OPTIONS,
+  getIndicadorDashboardScope,
+  getModuloDashboardScope,
+  normalizeDashboardScope,
+} from '@/lib/dashboardScope';
+import {
+  COMISSAO_GRUPOS_DEFAULT,
+  normalizeGrupoComissao,
+} from '@/lib/comissaoGrupos';
+import { ENTITY_TYPE_CLINICA, ENTITY_TYPE_COMISSAO, ENTITY_TYPE_SETOR, normalizeEntityType } from '@/lib/entityType';
+
+const GRUPO_VISUAL_OUTROS = 'Outros';
 
 const TIPO_GRAFICO_LABEL = {
   linha: 'Linha',
@@ -66,11 +82,12 @@ const CHART_TYPES = [
 ];
 
 /** @typedef {{ id: string, nome?: string, divisao?: string, indicador_ids?: string }} SetorEntity */
-/** @typedef {{ id: string, nome?: string, tipo_grafico?: string, layout_modulo?: string, layout_dashboard?: string, ordem?: number }} ModuloEntity */
-/** @typedef {{ id: string, nome?: string, label?: string, unidade?: string, grupo_radar?: string, grupo_serie?: string, tipo_grafico?: string, tipo_direcao_meta?: string, divisoes?: string, ordem?: number, modulo_id?: string, ativo?: boolean }} IndicadorEntity */
+/** @typedef {{ id: string, nome?: string, tipo_grafico?: string, layout_modulo?: string, layout_dashboard?: string, dashboard_scope?: string, ordem?: number }} ModuloEntity */
+/** @typedef {{ id: string, nome?: string, label?: string, unidade?: string, cor?: string, grupo_radar?: string, grupo_serie?: string, grupo_visual?: string, nome_serie?: string, tipo_grafico?: string, tipo_direcao_meta?: string, divisoes?: string, dashboard_scope?: string, grupo_scope?: string, ordem?: number, modulo_id?: string, ativo?: boolean }} IndicadorEntity */
 
 /**
- * Mesmo nome de grupo_serie com tipos efetivos diferentes: o dashboard separa em blocos;
+ * Mesmo nome de grupo_visual (fallback: grupo_serie) com tipos efetivos diferentes:
+ * o dashboard separa em blocos;
  * avisamos aqui para o gestor alinhar override ou grupo.
  * @param {Record<string, unknown>[]} inds
  * @param {Record<string, unknown>|null|undefined} modulo
@@ -79,7 +96,7 @@ function findGrupoSerieTipoConflicts(inds, modulo) {
   /** @type {Map<string, Set<string>>} */
   const byGrupo = new Map();
   for (const ind of inds) {
-    const g = String(ind.grupo_serie || '').trim();
+    const g = String(ind.grupo_visual || ind.grupo_serie || '').trim();
     if (!g) continue;
     const t = tipoGraficoEfetivoIndicador(ind, modulo);
     if (!byGrupo.has(g)) byGrupo.set(g, new Set());
@@ -95,6 +112,19 @@ function findGrupoSerieTipoConflicts(inds, modulo) {
 
 function chartTypeLabel(value) {
   return CHART_TYPES.find((c) => c.value === value)?.label || value;
+}
+
+function toOrdemNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function labelTipoDirecaoMeta(tipo) {
+  if (tipo === 'MAIOR_E_MELHOR') return '↑ Maior é melhor';
+  if (tipo === 'MENOR_E_MELHOR') return '↓ Menor é melhor';
+  if (tipo === 'META_CONTRATUAL') return '≈ Contratual';
+  if (tipo === 'NAO_SE_APLICA') return '∅ Não se aplica';
+  return '≈ Contratual';
 }
 
 // ---- Modal: new/edit Módulo ----
@@ -206,25 +236,14 @@ function RadarFaixasEditor({ rows, onChange, disabled, inheritHint }) {
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <Label className="text-[10px] uppercase text-muted-foreground">Cor</Label>
-                  <Select
+                  <ColorPicker2D
                     value={row.cor || '#22c55e'}
-                    onValueChange={(v) => setRow(i, { cor: v })}
+                    onChange={(v) => setRow(i, { cor: v })}
+                    swatches={RADAR_COR_OPCOES.map((op) => op.value)}
+                    showSwatches
+                    showTextInput
                     disabled={disabled}
-                  >
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RADAR_COR_OPCOES.map((op) => (
-                        <SelectItem key={op.value} value={op.value}>
-                          <span className="inline-flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: op.value }} />
-                            {op.label}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  />
                   <p className="text-[10px] text-muted-foreground mt-0.5">
                     Prévia: {formatFaixaRange(row)}
                   </p>
@@ -353,7 +372,7 @@ function PizzaFatiasEditor({ rows, onChange, indicadorOpcoes, disabled = false }
   );
 }
 
-function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel }) {
+function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel, defaultDashboardScope = DASHBOARD_SCOPE_LEGACY }) {
   const [nome, setNome] = useState(modulo?.nome || '');
   const [icone, setIcone] = useState(modulo?.icone || '📋');
   const [cor, setCor] = useState(modulo?.cor || '#0a2d5e');
@@ -365,6 +384,7 @@ function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel 
     modulo?.layout_dashboard === 'bundle_kpi_tabela' ? 'bundle_kpi_tabela' : 'padrao'
   );
   const [tipoUi, setTipoUi] = useState('__auto');
+  const [dashboardScope, setDashboardScope] = useState(defaultDashboardScope);
   const [pizzaFatiasRows, setPizzaFatiasRows] = useState([]);
   const [radarFaixasRows, setRadarFaixasRows] = useState([]);
 
@@ -408,6 +428,7 @@ function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel 
     setLayoutModulo(modulo?.layout_modulo === 'card_grafico' ? 'card_grafico' : 'padrao');
     setLayoutDashboard(modulo?.layout_dashboard === 'bundle_kpi_tabela' ? 'bundle_kpi_tabela' : 'padrao');
     setTipoUi(modulo ? storedTipoUiForSelect(modulo) : '__auto');
+    setDashboardScope(modulo ? getModuloDashboardScope(modulo) : defaultDashboardScope);
     setPizzaFatiasRows(parsePizzaFatiasRaw(modulo?.pizza_fatias));
     const parsedRadar = parseRadarFaixasRaw(modulo?.radar_faixas);
     if (parsedRadar.length > 0) {
@@ -420,7 +441,7 @@ function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel 
           : []
       );
     }
-  }, [open, modulo]);
+  }, [open, modulo, defaultDashboardScope]);
 
   const handleOpenChange = (v) => { if (!v) onCancel(); };
 
@@ -443,8 +464,14 @@ function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel 
           </div>
           {/* Cor */}
           <div>
-            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cor (HEX)</Label>
-            <Input value={cor} onChange={e => setCor(e.target.value)} placeholder="#0a2d5e" className="mt-1" />
+            <ColorPicker2D
+              label="Cor (HEX)"
+              value={cor}
+              onChange={setCor}
+              swatches={RADAR_COR_OPCOES.map((op) => op.value)}
+              showSwatches
+              showTextInput={false}
+            />
           </div>
           {/* Tipo de gráfico */}
           <div>
@@ -513,6 +540,21 @@ function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel 
             </div>
           </div>
           <div>
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dashboard de destino</Label>
+            <Select value={dashboardScope} onValueChange={(v) => setDashboardScope(normalizeDashboardScope(v))}>
+              <SelectTrigger className="mt-1 h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DASHBOARD_SCOPE_OPTIONS.map((op) => (
+                  <SelectItem key={op.value} value={op.value}>
+                    {op.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
             <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tipo de card no dashboard</Label>
             <p className="text-[11px] text-muted-foreground mt-1 mb-2">
               Opcional. Define painel especial (IRAS, MISP, etc.). Automático = mesmo comportamento de antes (pelo nome do módulo).
@@ -567,6 +609,7 @@ function ModuloModal({ open, modulo, indicadoresDoModulo = [], onSave, onCancel 
                 layout_modulo,
                 layout_dashboard,
                 tipo_ui: tipoUi === '__auto' ? '' : tipoUi,
+                dashboard_scope: normalizeDashboardScope(dashboardScope),
                 pizza_fatias:
                   normalizeTipoGrafico(tipo_grafico) === 'pizza' ? serializePizzaFatias(pizzaFatiasRows) : '',
                 ...radarFaixasPatchIfEditing(showRadarFaixasModulo, radarFaixasRows),
@@ -596,14 +639,22 @@ function IndicadorModal({
   ocultarDivisoesIndicador = false,
   onSave,
   onCancel,
+  defaultDashboardScope = DASHBOARD_SCOPE_LEGACY,
 }) {
+  const { toast } = useToast();
   const [nome, setNome] = useState(indicador?.nome || '');
   const [label, setLabel] = useState(indicador?.label || '');
   const [unidade, setUnidade] = useState(indicador?.unidade || '');
+  const [corIndicador, setCorIndicador] = useState(indicador?.cor || '#3b82f6');
   const [tipoDirecao, setTipoDirecao] = useState(indicador?.tipo_direcao_meta || 'MENOR_E_MELHOR');
   const [grupoRadar, setGrupoRadar] = useState(indicador?.grupo_radar || '');
   const [grupoSerie, setGrupoSerie] = useState(indicador?.grupo_serie || '');
+  const [grupoVisual, setGrupoVisual] = useState(indicador?.grupo_visual || '');
+  const [nomeSerie, setNomeSerie] = useState(indicador?.nome_serie || '');
   const [tipoGraficoInd, setTipoGraficoInd] = useState('__modulo');
+  const [dashboardScope, setDashboardScope] = useState(defaultDashboardScope);
+  const [grupoScope, setGrupoScope] = useState('');
+  const [scopeError, setScopeError] = useState('');
   const [divsSel, setDivsSel] = useState([]);
   const [meta, setMeta] = useState(metaAtual !== undefined && metaAtual !== null ? String(metaAtual) : '');
   const [pizzaFatiasRows, setPizzaFatiasRows] = useState([]);
@@ -637,9 +688,17 @@ function IndicadorModal({
     setNome(indicador?.nome || '');
     setLabel(indicador?.label || '');
     setUnidade(indicador?.unidade || '');
+    setCorIndicador(indicador?.cor || '#3b82f6');
     setTipoDirecao(indicador?.tipo_direcao_meta || 'MENOR_E_MELHOR');
     setGrupoRadar(indicador?.grupo_radar || '');
     setGrupoSerie(indicador?.grupo_serie || '');
+    setGrupoVisual(indicador?.grupo_visual || (indicador ? '' : GRUPO_VISUAL_OUTROS));
+    setNomeSerie(indicador?.nome_serie || '');
+    setDashboardScope(
+      indicador ? getIndicadorDashboardScope(indicador, modulo) : defaultDashboardScope
+    );
+    setGrupoScope(normalizeGrupoComissao(indicador?.grupo_scope));
+    setScopeError('');
     const rawTg = indicador?.tipo_grafico;
     setTipoGraficoInd(rawTg != null && String(rawTg).trim() !== '' ? String(rawTg).trim().toLowerCase() : '__modulo');
     setDivsSel(parseDivisoesIndicador(indicador || {}));
@@ -661,7 +720,7 @@ function IndicadorModal({
         setRadarFaixasRows([]);
       }
     }
-  }, [open, indicador, metaAtual, modulo]);
+  }, [open, indicador, metaAtual, modulo, defaultDashboardScope]);
 
   const toggleDivisao = (nome) => {
     setDivsSel((prev) => (prev.includes(nome) ? prev.filter((x) => x !== nome) : [...prev, nome]));
@@ -674,7 +733,52 @@ function IndicadorModal({
     { value: 'MENOR_E_MELHOR', label: '↓ Menor é Melhor', desc: 'Ex: taxas de infecção, erros' },
     { value: 'MAIOR_E_MELHOR', label: '↑ Maior é Melhor', desc: 'Ex: adesão, satisfação' },
     { value: 'META_CONTRATUAL', label: '≈ Meta Contratual', desc: 'Valor exato acordado' },
+    { value: 'NAO_SE_APLICA', label: '∅ Não se aplica', desc: 'Indicador sem avaliação por meta' },
   ];
+  const isComissoesScope = dashboardScope === DASHBOARD_SCOPE_COMISSOES;
+  const handleIndicadorSubmit = () => {
+    const nomeTrim = nome.trim();
+    const grupoVisualNormalizado = grupoVisual.trim() || GRUPO_VISUAL_OUTROS;
+    if (!nomeTrim) return;
+    if (!dashboardScope) {
+      setScopeError('Selecione o dashboard de destino.');
+      toast({
+        title: 'Campo obrigatório',
+        description: 'Selecione o dashboard de destino para salvar o indicador.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (isComissoesScope && !grupoScope) {
+      setScopeError('Selecione o grupo/comissão para o Dashboard Comissões.');
+      toast({
+        title: 'Grupo obrigatório',
+        description: 'Para Dashboard Comissões, escolha o grupo da comissão antes de salvar.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setScopeError('');
+    onSave({
+      nome: nomeTrim,
+      label: label.trim(),
+      unidade,
+      cor: corIndicador || '#3b82f6',
+      tipo_direcao_meta: tipoDirecao,
+      grupo_radar: grupoRadar.trim() || '',
+      grupo_serie: grupoSerie.trim() || '',
+      grupo_visual: grupoVisualNormalizado,
+      nome_serie: nomeSerie.trim() || '',
+      dashboard_scope: normalizeDashboardScope(dashboardScope),
+      grupo_scope: isComissoesScope ? normalizeGrupoComissao(grupoScope) : '',
+      tipo_grafico: tipoGraficoInd === '__modulo' ? '' : tipoGraficoInd,
+      divisoes: serializeDivisoesParaIndicador(divsSel),
+      pizza_fatias:
+        tipoGraficoEfetivoModal === 'pizza' ? serializePizzaFatias(pizzaFatiasRows) : '',
+      ...radarFaixasPatchIfEditing(showRadarFaixasInd, radarFaixasRows),
+      meta: meta !== '' ? Number(meta) : null,
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -715,6 +819,16 @@ function IndicadorModal({
               />
             </div>
             <div>
+              <ColorPicker2D
+                label="Cor do Indicador"
+                value={corIndicador}
+                onChange={setCorIndicador}
+                swatches={RADAR_COR_OPCOES.map((op) => op.value)}
+                showSwatches
+                showTextInput
+              />
+            </div>
+            <div>
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Meta {anoMeta}{nomeSetorMeta ? ` — ${nomeSetorMeta}` : ''}
               </Label>
@@ -741,6 +855,30 @@ function IndicadorModal({
             </p>
           </div>
           <div>
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Grupo visual</Label>
+            <Input
+              value={grupoVisual}
+              onChange={e => setGrupoVisual(e.target.value)}
+              placeholder="Ex: Indicadores de Produção"
+              className="mt-1"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Campo de agrupamento para dashboard e lançamento. Se ficar vazio, o sistema salva como <strong>{GRUPO_VISUAL_OUTROS}</strong>.
+            </p>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nome da série (novo)</Label>
+            <Input
+              value={nomeSerie}
+              onChange={e => setNomeSerie(e.target.value)}
+              placeholder="Ex: Medicina - Adesão"
+              className="mt-1"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Nome exibido na legenda da linha/barra ou na fatia do pizza. Vazio = usa rótulo/nome do indicador.
+            </p>
+          </div>
+          <div>
             <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Grupo série (opcional)</Label>
             <Input
               value={grupoSerie}
@@ -754,6 +892,54 @@ function IndicadorModal({
               mesmo gráfico. Tipos diferentes no mesmo nome de grupo geram blocos separados no painel.
             </p>
           </div>
+          <div>
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Dashboard de destino
+            </Label>
+            <Select value={dashboardScope} onValueChange={(v) => setDashboardScope(normalizeDashboardScope(v))}>
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DASHBOARD_SCOPE_OPTIONS.map((op) => (
+                  <SelectItem key={op.value} value={op.value}>
+                    {op.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Obrigatório para separar indicadores por dashboard. Registros antigos sem este campo ficam no legado.
+            </p>
+          </div>
+          {isComissoesScope ? (
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Grupo da comissão
+              </Label>
+              <Select value={grupoScope || '__none'} onValueChange={(v) => setGrupoScope(v === '__none' ? '' : normalizeGrupoComissao(v))}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Selecionar grupo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Selecionar…</SelectItem>
+                  {COMISSAO_GRUPOS_DEFAULT.map((op) => (
+                    <SelectItem key={op.value} value={op.value}>
+                      {op.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                No Dashboard Comissões, cada indicador precisa estar vinculado a um grupo.
+              </p>
+            </div>
+          ) : null}
+          {scopeError ? (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">
+              {scopeError}
+            </p>
+          ) : null}
           <div>
             <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Tipo de gráfico (opcional)
@@ -845,7 +1031,7 @@ function IndicadorModal({
           ) : null}
           <div>
             <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Direção da Meta</Label>
-            <div className="grid grid-cols-3 gap-2 mt-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
               {DIRECAO_OPTIONS.map(op => (
                 <button
                   key={op.value}
@@ -869,20 +1055,7 @@ function IndicadorModal({
               Cancelar
             </Button>
             <Button
-              onClick={() => onSave({
-                nome: nome.trim(),
-                label: label.trim(),
-                unidade,
-                tipo_direcao_meta: tipoDirecao,
-                grupo_radar: grupoRadar.trim() || '',
-                grupo_serie: grupoSerie.trim() || '',
-                tipo_grafico: tipoGraficoInd === '__modulo' ? '' : tipoGraficoInd,
-                divisoes: serializeDivisoesParaIndicador(divsSel),
-                pizza_fatias:
-                  tipoGraficoEfetivoModal === 'pizza' ? serializePizzaFatias(pizzaFatiasRows) : '',
-                ...radarFaixasPatchIfEditing(showRadarFaixasInd, radarFaixasRows),
-                meta: meta !== '' ? Number(meta) : null,
-              })}
+              onClick={handleIndicadorSubmit}
               disabled={!nome.trim()}
               className="bg-green-500 hover:bg-green-600 text-white"
             >
@@ -971,7 +1144,9 @@ async function exportModuloPDF(modulo, indicadores, lancamentos, metas, ano, mes
     let status = '–';
     /** @type {[number, number, number]} */
     let statusColor = [120, 120, 120];
-    if (lancamento?.valor !== null && lancamento?.valor !== undefined && meta?.valor !== undefined) {
+    if (ind.tipo_direcao_meta === 'NAO_SE_APLICA') {
+      status = 'N/A';
+    } else if (lancamento?.valor !== null && lancamento?.valor !== undefined && meta?.valor !== undefined) {
       const diff = lancamento.valor - meta.valor;
       if (ind.tipo_direcao_meta === 'MAIOR_E_MELHOR') {
         if (diff >= 0) { status = 'OK'; statusColor = [34, 139, 34]; }
@@ -1025,7 +1200,7 @@ async function exportModuloPDF(modulo, indicadores, lancamentos, metas, ano, mes
  * @param {string} moduloId
  * @param {Record<string, unknown>[]} indicadoresList lista completa de indicadores (ex.: cache da query)
  */
-async function deleteModuloCascadeApi(moduloId, indicadoresList) {
+async function deleteModuloCascadeApi(moduloId, indicadoresList, entityType) {
   const mid = String(normalizeSheetId(moduloId));
   const indicadorIds = indicadoresList
     .filter((i) => String(normalizeSheetId(i.modulo_id ?? '')) === mid)
@@ -1033,8 +1208,8 @@ async function deleteModuloCascadeApi(moduloId, indicadoresList) {
   const idSet = new Set(indicadorIds);
 
   const [allLanc, allMetas] = await Promise.all([
-    api.entities.Lancamento.list(),
-    api.entities.Meta.list(),
+    api.entities.Lancamento.filter({ entity_type: entityType }),
+    api.entities.Meta.filter({ entity_type: entityType }),
   ]);
 
   for (const row of allLanc) {
@@ -1053,23 +1228,44 @@ async function deleteModuloCascadeApi(moduloId, indicadoresList) {
   await api.entities.Modulo.delete(mid);
 }
 
-export default function ModulosIndicadores() {
+export default function ModulosIndicadores({ entityType = ENTITY_TYPE_SETOR, title }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const anoAtual = new Date().getFullYear();
   const mesAtual = new Date().getMonth() + 1;
+  const domainType = normalizeEntityType(entityType);
+  const isComissao = domainType === ENTITY_TYPE_COMISSAO;
+  const isClinica = domainType === ENTITY_TYPE_CLINICA;
+  const defaultDashboardScope = isClinica
+    ? DASHBOARD_SCOPE_PRATICAS_MEDICAS
+    : (isComissao ? DASHBOARD_SCOPE_COMISSOES : DASHBOARD_SCOPE_LEGACY);
 
-  const { data: setoresData } = useQuery({ queryKey: ['setores'], queryFn: () => api.entities.Setor.list() });
-  const { data: modulosData } = useQuery({ queryKey: ['modulos'], queryFn: () => api.entities.Modulo.list() });
-  const { data: indicadoresData } = useQuery({ queryKey: ['indicadores'], queryFn: () => api.entities.Indicador.list() });
+  const { data: setoresData } = useQuery({
+    queryKey: ['setores', domainType],
+    queryFn: () => api.entities.Setor.filter({ entity_type: domainType }),
+  });
+  const { data: modulosData } = useQuery({
+    queryKey: ['modulos', domainType],
+    queryFn: () => api.entities.Modulo.filter({ entity_type: domainType }),
+  });
+  const { data: indicadoresData } = useQuery({
+    queryKey: ['indicadores', domainType],
+    queryFn: () => api.entities.Indicador.filter({ entity_type: domainType }),
+  });
   /** @type {SetorEntity[]} */
   const setores = setoresData ?? [];
   /** @type {ModuloEntity[]} */
   const modulos = modulosData ?? [];
   /** @type {IndicadorEntity[]} */
   const indicadores = indicadoresData ?? [];
-  const { data: lancamentos = [] } = useQuery({ queryKey: ['lancamentos', anoAtual], queryFn: () => api.entities.Lancamento.filter({ ano: anoAtual }) });
-  const { data: metas = [] } = useQuery({ queryKey: ['metas', anoAtual], queryFn: () => api.entities.Meta.filter({ ano: anoAtual }) });
+  const { data: lancamentos = [] } = useQuery({
+    queryKey: ['lancamentos', domainType, anoAtual],
+    queryFn: () => api.entities.Lancamento.filter({ ano: anoAtual, entity_type: domainType }),
+  });
+  const { data: metas = [] } = useQuery({
+    queryKey: ['metas', domainType, anoAtual],
+    queryFn: () => api.entities.Meta.filter({ ano: anoAtual, entity_type: domainType }),
+  });
 
   const { user } = useAuth();
   const isGestor = String(user?.tipo) === 'gestor';
@@ -1088,7 +1284,11 @@ export default function ModulosIndicadores() {
   const invalidateIndicadores = () => queryClient.invalidateQueries({ queryKey: ['indicadores'] });
 
   const createModulo = useMutation({
-    mutationFn: (data) => api.entities.Modulo.create(data),
+    mutationFn: (data) =>
+      api.entities.Modulo.create({
+        .../** @type {Record<string, unknown>} */ (data ?? {}),
+        entity_type: domainType,
+      }),
     onSuccess: () => { invalidateModulos(); setModuloModal(null); toast({ title: 'Módulo criado!' }); },
   });
   const updateModulo = useMutation(
@@ -1117,7 +1317,7 @@ export default function ModulosIndicadores() {
 
   const deleteModuloCascade = useMutation(
     /** @type {import('@tanstack/react-query').UseMutationOptions<unknown, Error, string>} */ ({
-      mutationFn: (moduloId) => deleteModuloCascadeApi(moduloId, indicadores),
+      mutationFn: (moduloId) => deleteModuloCascadeApi(moduloId, indicadores, domainType),
       onSuccess: (_, moduloId) => {
         invalidateModulos();
         invalidateIndicadores();
@@ -1163,19 +1363,27 @@ export default function ModulosIndicadores() {
   );
 
   const saveMeta = async (indicadorId, valor, sid) => {
-    if (valor === null || valor === '' || !sid) return;
+    if (!sid) return;
     const existing = metas.find(m =>
       m.indicador_id === indicadorId && m.ano === anoAtualRef && m.setor_id === sid
     );
-    if (existing) {
-      await api.entities.Meta.update(existing.id, { valor: Number(valor) });
+    const semMeta = valor === null || valor === undefined || String(valor).trim() === '';
+    if (semMeta) {
+      if (existing) {
+        await api.entities.Meta.delete(existing.id);
+      }
     } else {
-      await api.entities.Meta.create({
-        indicador_id: indicadorId,
-        setor_id: sid,
-        ano: anoAtualRef,
-        valor: Number(valor),
-      });
+      if (existing) {
+        await api.entities.Meta.update(existing.id, { valor: Number(valor) });
+      } else {
+        await api.entities.Meta.create({
+          indicador_id: indicadorId,
+          setor_id: sid,
+          ano: anoAtualRef,
+          valor: Number(valor),
+          entity_type: domainType,
+        });
+      }
     }
     queryClient.invalidateQueries({ queryKey: ['metas'] });
   };
@@ -1183,12 +1391,90 @@ export default function ModulosIndicadores() {
   const [moduloModal, setModuloModal] = useState(null); // null | { modulo? }
   // modalState: null | { moduloId, modulo, indicador? }
   const [modalState, setModalState] = useState(null);
+  const [movingModuloId, setMovingModuloId] = useState(null);
+  const [movingIndicadorId, setMovingIndicadorId] = useState(null);
 
   const modulosOrdenados = useMemo(() => {
-    const sorted = [...modulos].sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+    const sorted = [...modulos].sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem));
     if (!isGestor) return sorted;
     return sorted.filter((m) => indicadoresFiltrados.some((i) => i.modulo_id === m.id));
   }, [modulos, isGestor, indicadoresFiltrados]);
+
+  const moveModulo = async (moduloId, dir) => {
+    const ordered = [...modulosOrdenados];
+    const currentIndex = ordered.findIndex((m) => String(m.id) === String(moduloId));
+    const targetIndex = currentIndex + dir;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+
+    const reordered = [...ordered];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const updates = reordered
+      .map((mod, index) => ({
+        id: String(mod.id),
+        prevOrdem: toOrdemNumber(mod.ordem),
+        nextOrdem: (index + 1) * 10,
+      }))
+      .filter((item) => item.prevOrdem !== item.nextOrdem);
+    if (updates.length === 0) return;
+
+    setMovingModuloId(String(moduloId));
+    try {
+      await Promise.all(
+        updates.map((item) =>
+          api.entities.Modulo.update(item.id, { ordem: item.nextOrdem, entity_type: domainType })
+        )
+      );
+      invalidateModulos();
+      toast({ title: 'Módulo movido' });
+    } catch (err) {
+      toast({
+        title: 'Não foi possível mover o módulo',
+        description: err instanceof Error ? err.message : String(err),
+        variant: 'destructive',
+      });
+    } finally {
+      setMovingModuloId(null);
+    }
+  };
+
+  const moveIndicador = async (orderedIndicadores, indicadorId, dir) => {
+    const ordered = [...orderedIndicadores];
+    const currentIndex = ordered.findIndex((ind) => String(ind.id) === String(indicadorId));
+    const targetIndex = currentIndex + dir;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+
+    const reordered = [...ordered];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const updates = reordered
+      .map((ind, index) => ({
+        id: String(ind.id),
+        prevOrdem: toOrdemNumber(ind.ordem),
+        nextOrdem: (index + 1) * 10,
+      }))
+      .filter((item) => item.prevOrdem !== item.nextOrdem);
+    if (updates.length === 0) return;
+
+    setMovingIndicadorId(String(indicadorId));
+    try {
+      await Promise.all(
+        updates.map((item) =>
+          api.entities.Indicador.update(item.id, { ordem: item.nextOrdem, entity_type: domainType })
+        )
+      );
+      invalidateIndicadores();
+      toast({ title: 'Indicador movido' });
+    } catch (err) {
+      toast({
+        title: 'Não foi possível mover o indicador',
+        description: err instanceof Error ? err.message : String(err),
+        variant: 'destructive',
+      });
+    } finally {
+      setMovingIndicadorId(null);
+    }
+  };
 
   return (
     <div className="space-y-2">
@@ -1196,7 +1482,9 @@ export default function ModulosIndicadores() {
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <div className="flex items-center gap-2">
           <Layers className="w-4 h-4 text-primary" />
-          <span className="font-jakarta font-bold text-base">Módulos e Indicadores</span>
+          <span className="font-jakarta font-bold text-base">
+            {title || `Módulos ${isClinica ? 'Clínicas' : isComissao ? 'Comissões' : 'Setores'} e Indicadores`}
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <Label className="text-xs text-muted-foreground whitespace-nowrap">Meta ({anoAtual}) para o setor:</Label>
@@ -1227,16 +1515,14 @@ export default function ModulosIndicadores() {
       </div>
 
       {/* Módulos list */}
-      {modulosOrdenados.map((modulo) => {
-        const inds = filtrarIndicadoresPorSetorWhitelist(
-          /** @type {IndicadorEntity[]} */ (
-            indicadoresFiltrados
-              .filter((i) => i.modulo_id === modulo.id)
-              .sort((a, b) => (Number(a.ordem) || 0) - (Number(b.ordem) || 0))
-          ),
-          setorMetaRow
+      {modulosOrdenados.map((modulo, moduloIdx) => {
+        const indsModuloOrdenados = /** @type {IndicadorEntity[]} */ (
+          indicadoresFiltrados
+            .filter((i) => i.modulo_id === modulo.id)
+            .sort((a, b) => toOrdemNumber(a.ordem) - toOrdemNumber(b.ordem))
         );
-        const serieConflicts = findGrupoSerieTipoConflicts(inds, modulo);
+        const inds = filtrarIndicadoresPorSetorWhitelist(indsModuloOrdenados, setorMetaRow);
+        const serieConflicts = findGrupoSerieTipoConflicts(indsModuloOrdenados, modulo);
         const icon = MODULO_ICONS[modulo.nome] || DEFAULT_ICON;
         return (
           <div key={modulo.id} className="border border-gray-200 rounded-xl overflow-hidden mb-3">
@@ -1268,6 +1554,30 @@ export default function ModulosIndicadores() {
                 >
                   <FileDown className="w-3 h-3" />PDF
                 </Button>
+                {!isGestor ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 w-7 p-0 text-slate-600 border-slate-300 hover:bg-slate-100"
+                      disabled={moduloIdx === 0 || !!movingModuloId}
+                      onClick={() => moveModulo(String(modulo.id), -1)}
+                      title="Subir módulo"
+                    >
+                      <ChevronUp className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 w-7 p-0 text-slate-600 border-slate-300 hover:bg-slate-100"
+                      disabled={moduloIdx === modulosOrdenados.length - 1 || !!movingModuloId}
+                      onClick={() => moveModulo(String(modulo.id), 1)}
+                      title="Descer módulo"
+                    >
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                  </>
+                ) : null}
                 {!isGestor ? (
                   <Button
                     size="sm"
@@ -1316,7 +1626,7 @@ export default function ModulosIndicadores() {
             ) : null}
 
             {/* Indicadores rows */}
-            {inds.map(ind => (
+            {inds.map((ind) => (
               <div
                 key={String(ind.id)}
                 className="flex items-center justify-between px-6 py-2.5 border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors"
@@ -1331,6 +1641,12 @@ export default function ModulosIndicadores() {
                     {ind.grupo_serie ? (
                       <span className="text-xs font-medium text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">Série: {String(ind.grupo_serie)}</span>
                     ) : null}
+                    {ind.grupo_visual ? (
+                      <span className="text-xs font-medium text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">Visual: {String(ind.grupo_visual)}</span>
+                    ) : null}
+                    {ind.nome_serie ? (
+                      <span className="text-xs font-medium text-fuchsia-700 bg-fuchsia-50 px-1.5 py-0.5 rounded">Nome série: {String(ind.nome_serie)}</span>
+                    ) : null}
                     {ind.tipo_grafico != null && String(ind.tipo_grafico).trim() !== '' ? (
                       <span className="text-xs font-medium text-cyan-800 bg-cyan-50 px-1.5 py-0.5 rounded">
                         Gráfico: {chartTypeLabel(String(ind.tipo_grafico).trim().toLowerCase())}
@@ -1344,9 +1660,7 @@ export default function ModulosIndicadores() {
                         </span>
                       ) : null;
                     })()}
-                    <span className="text-xs text-muted-foreground">
-                      {ind.tipo_direcao_meta === 'MAIOR_E_MELHOR' ? '↑ Maior é melhor' : ind.tipo_direcao_meta === 'MENOR_E_MELHOR' ? '↓ Menor é melhor' : '≈ Contratual'}
-                    </span>
+                    <span className="text-xs text-muted-foreground">{labelTipoDirecaoMeta(ind.tipo_direcao_meta)}</span>
                     {(() => {
                       const ms = metas.filter(mt => mt.indicador_id === ind.id && mt.ano === anoAtual);
                       if (ms.length === 0) return null;
@@ -1363,6 +1677,28 @@ export default function ModulosIndicadores() {
                   </div>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
+                  {!isGestor ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => moveIndicador(indsModuloOrdenados, String(ind.id), -1)}
+                        disabled={indsModuloOrdenados.findIndex((x) => String(x.id) === String(ind.id)) <= 0 || !!movingIndicadorId}
+                        className="w-7 h-7 flex items-center justify-center rounded border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Subir indicador"
+                      >
+                        <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveIndicador(indsModuloOrdenados, String(ind.id), 1)}
+                        disabled={indsModuloOrdenados.findIndex((x) => String(x.id) === String(ind.id)) === indsModuloOrdenados.length - 1 || !!movingIndicadorId}
+                        className="w-7 h-7 flex items-center justify-center rounded border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Descer indicador"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     onClick={() => setModalState({ moduloId: modulo.id, modulo, indicador: ind })}
                     className="w-7 h-7 flex items-center justify-center rounded border border-amber-200 bg-amber-50 text-amber-500 hover:bg-amber-100 transition-colors"
@@ -1406,6 +1742,7 @@ export default function ModulosIndicadores() {
       <ModuloModal
         open={!!moduloModal}
         modulo={moduloModal?.modulo}
+        defaultDashboardScope={defaultDashboardScope}
         indicadoresDoModulo={
           moduloModal?.modulo?.id
             ? indicadoresFiltrados.filter((i) => String(i.modulo_id) === String(moduloModal.modulo.id))
@@ -1414,9 +1751,9 @@ export default function ModulosIndicadores() {
         onCancel={() => setModuloModal(null)}
         onSave={(d) => {
           if (moduloModal?.modulo) {
-            updateModulo.mutate({ id: moduloModal.modulo.id, data: d });
+            updateModulo.mutate({ id: moduloModal.modulo.id, data: { ...d, entity_type: domainType } });
           } else {
-            createModulo.mutate(d);
+            createModulo.mutate({ ...d, entity_type: domainType });
           }
         }}
       />
@@ -1489,6 +1826,7 @@ export default function ModulosIndicadores() {
         nomeSetorMeta={nomeSetorMeta}
         divisoesDisponiveis={divisoesDisponiveis}
         ocultarDivisoesIndicador={isGestor}
+        defaultDashboardScope={defaultDashboardScope}
         metaAtual={modalState?.indicador
           ? metas.find(m =>
               m.indicador_id === modalState.indicador.id &&
@@ -1499,17 +1837,34 @@ export default function ModulosIndicadores() {
         onCancel={() => setModalState(null)}
         onSave={async (d) => {
           const { meta, ...indData } = d;
-          if (modalState?.indicador) {
-            updateIndicador.mutate({ id: modalState.indicador.id, data: { ...modalState.indicador, ...indData } });
-          } else {
-            const created = await api.entities.Indicador.create({ ...indData, modulo_id: modalState.moduloId, modulo_nome: modalState.modulo.nome, ativo: true });
-            if (meta !== null && setorMetaId) await saveMeta(created.id, meta, setorMetaId);
-            queryClient.invalidateQueries({ queryKey: ['indicadores'] });
-            setModalState(null);
-            toast({ title: 'Indicador criado!' });
-            return;
+          try {
+            if (modalState?.indicador) {
+              await updateIndicador.mutateAsync({
+                id: modalState.indicador.id,
+                data: { ...modalState.indicador, ...indData, entity_type: domainType },
+              });
+            } else {
+              const created = await api.entities.Indicador.create({
+                ...indData,
+                modulo_id: modalState.moduloId,
+                modulo_nome: modalState.modulo.nome,
+                ativo: true,
+                entity_type: domainType,
+              });
+              if (setorMetaId) await saveMeta(created.id, meta, setorMetaId);
+              queryClient.invalidateQueries({ queryKey: ['indicadores'] });
+              setModalState(null);
+              toast({ title: 'Indicador criado!' });
+              return;
+            }
+            if (setorMetaId) await saveMeta(modalState.indicador.id, meta, setorMetaId);
+          } catch (err) {
+            toast({
+              title: 'Não foi possível salvar o indicador',
+              description: err instanceof Error ? err.message : String(err),
+              variant: 'destructive',
+            });
           }
-          if (meta !== null && setorMetaId) await saveMeta(modalState.indicador.id, meta, setorMetaId);
         }}
       />
     </div>

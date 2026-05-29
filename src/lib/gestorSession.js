@@ -5,6 +5,7 @@
  * - `nivel_acesso` (sessão após login): completo | lancamento — ver `gestorNivelAcesso.js`
  * Pode usar só divisões, só setores, ou ambos (interseção).
  */
+import { ENTITY_TYPE_CLINICA, ENTITY_TYPE_COMISSAO, ENTITY_TYPE_SETOR, normalizeEntityType } from '@/lib/entityType';
 
 /** @param {unknown} raw */
 export function parseGestorUnidadesIds(raw) {
@@ -33,16 +34,47 @@ export function parseGestorDivisoesList(raw) {
 export function getSetoresVisiveisParaUsuario(setores, user) {
   const list = setores || [];
   if (!user || String(user.tipo) !== 'gestor') return list;
-  const byIds = parseGestorUnidadesIds(user.unidades);
+  const byIdsLegacy = parseGestorUnidadesIds(user.unidades);
+  const byIdsSetor = parseGestorUnidadesIds(user.unidades_setor);
+  const byIdsComissao = parseGestorUnidadesIds(user.unidades_comissao);
+  const byIdsClinica = parseGestorUnidadesIds(user.unidades_clinica);
   const byDiv = parseGestorDivisoesNames(user.divisoes);
   let out = list;
   if (byDiv && byDiv.size > 0) {
     out = out.filter((s) => byDiv.has(String(s.divisao || '').trim()));
   }
-  if (byIds && byIds.size > 0) {
-    out = out.filter((s) => byIds.has(String(s.id)));
+  const hasScopedIds =
+    (byIdsSetor && byIdsSetor.size > 0) ||
+    (byIdsComissao && byIdsComissao.size > 0) ||
+    (byIdsClinica && byIdsClinica.size > 0);
+  if (hasScopedIds || (byIdsLegacy && byIdsLegacy.size > 0)) {
+    out = out.filter((s) => {
+      const sid = String(s.id);
+      const rowType = normalizeEntityType(s.entity_type);
+      if (rowType === ENTITY_TYPE_COMISSAO) {
+        if (byIdsComissao && byIdsComissao.size > 0) return byIdsComissao.has(sid);
+        return byIdsLegacy ? byIdsLegacy.has(sid) : false;
+      }
+      if (rowType === ENTITY_TYPE_CLINICA) {
+        if (byIdsClinica && byIdsClinica.size > 0) return byIdsClinica.has(sid);
+        return byIdsLegacy ? byIdsLegacy.has(sid) : false;
+      }
+      if (rowType === ENTITY_TYPE_SETOR) {
+        if (byIdsSetor && byIdsSetor.size > 0) return byIdsSetor.has(sid);
+        return byIdsLegacy ? byIdsLegacy.has(sid) : false;
+      }
+      return byIdsLegacy ? byIdsLegacy.has(sid) : false;
+    });
   }
-  if ((!byDiv || byDiv.size === 0) && (!byIds || byIds.size === 0)) return [];
+  if (
+    (!byDiv || byDiv.size === 0) &&
+    (!byIdsLegacy || byIdsLegacy.size === 0) &&
+    (!byIdsSetor || byIdsSetor.size === 0) &&
+    (!byIdsComissao || byIdsComissao.size === 0) &&
+    (!byIdsClinica || byIdsClinica.size === 0)
+  ) {
+    return [];
+  }
   return out;
 }
 

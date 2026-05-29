@@ -1,17 +1,12 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import { clearStoredUserSession, getStoredUserSession } from '@/lib/sessionStorage';
 
 const AuthContext = createContext(null);
 
 function readSessionFromStorage() {
-  try {
-    const raw = localStorage.getItem('userSession');
-    if (!raw) return { user: null, isAuthenticated: false };
-    const user = JSON.parse(raw);
-    return { user, isAuthenticated: true };
-  } catch {
-    localStorage.removeItem('userSession');
-    return { user: null, isAuthenticated: false };
-  }
+  const user = getStoredUserSession();
+  const hasToken = !!String(user?.session_token || '').trim();
+  return { user: hasToken ? user : null, isAuthenticated: hasToken };
 }
 
 export const AuthProvider = ({ children }) => {
@@ -33,7 +28,7 @@ export const AuthProvider = ({ children }) => {
   }, [loadSession]);
 
   const logout = (shouldRedirect = true) => {
-    localStorage.removeItem('userSession');
+    clearStoredUserSession();
     setUser(null);
     setIsAuthenticated(false);
     if (shouldRedirect) {

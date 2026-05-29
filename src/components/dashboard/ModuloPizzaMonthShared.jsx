@@ -1,7 +1,53 @@
 import { PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import { effectivePizzaFatias } from '@/lib/pizzaFatias';
+import { parseLocaleNumber } from '@/lib/numberParsing';
 
 export const PIZZA_SLICE_COLORS = ['#2d7d46', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+function hslToHex(h, s, l) {
+  const sat = Math.max(0, Math.min(100, s)) / 100;
+  const lig = Math.max(0, Math.min(100, l)) / 100;
+  const hue = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * lig - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = lig - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hue < 60) [r, g, b] = [c, x, 0];
+  else if (hue < 120) [r, g, b] = [x, c, 0];
+  else if (hue < 180) [r, g, b] = [0, c, x];
+  else if (hue < 240) [r, g, b] = [0, x, c];
+  else if (hue < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const toHex = (n) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function buildDistinctPalette(count, seed = 0) {
+  const out = [];
+  const used = new Set();
+  const base = PIZZA_SLICE_COLORS.map((_, i) => PIZZA_SLICE_COLORS[(seed + i) % PIZZA_SLICE_COLORS.length]);
+  for (const c of base) {
+    if (out.length >= count) break;
+    if (used.has(c)) continue;
+    used.add(c);
+    out.push(c);
+  }
+  let extra = 0;
+  while (out.length < count) {
+    const h = (seed * 41 + extra * 137.508) % 360;
+    const s = 70 - (extra % 3) * 8;
+    const l = 50 + ((extra % 4) - 1.5) * 4;
+    const generated = hslToHex(h, s, l);
+    if (!used.has(generated)) {
+      used.add(generated);
+      out.push(generated);
+    }
+    extra += 1;
+  }
+  return out;
+}
 
 /**
  * @param {Record<string, unknown>|null|undefined} ind
@@ -19,16 +65,12 @@ export function buildChartDataPizzaResolved(ind, modulo, setorId, mesAtual, getL
       valor: setorId ? getLancamento(f.indicador_id, setorId, mesAtual)?.valor ?? null : null,
     }));
   }
-  return buildChartData(ind.id, setorId);
+  return buildChartData(String(ind?.id ?? ''), setorId);
 }
 
 /** Converte valor de planilha/API (número ou string) para número finito ou null. */
 function coerceValorNumerico(v) {
-  if (v === undefined || v === null) return null;
-  if (typeof v === 'string' && v.trim() === '') return null;
-  const n = typeof v === 'number' ? v : Number(String(v).trim().replace(',', '.'));
-  if (!Number.isFinite(n)) return null;
-  return n;
+  return parseLocaleNumber(v);
 }
 
 /** Fatias = meses ou rótulos custom; só valores >0 entram na proporção (Recharts). */
@@ -61,9 +103,10 @@ export function MonthPieChartBody({
   height,
 }) {
   const slices = rowsToPieSlices(chartData);
+  const palette = buildDistinctPalette(slices.length, idx);
   const totalPositive = slices.reduce((s, x) => s + x.value, 0);
   const hasNumeric = slices.some((x) => x.rawValor != null && Number.isFinite(x.rawValor));
-  const title = ind ? ind.label || ind.nome : null;
+  const title = ind ? String(ind.label || ind.nome || '') : null;
   const isFatias = emptyMessagesKey === 'fatias';
   const titleReserve = title ? 24 : 0;
   const boxW = typeof width === 'number' && width > 0 ? width : 300;
@@ -137,12 +180,12 @@ export function MonthPieChartBody({
           cx="50%"
           cy="50%"
           innerRadius="12%"
-          outerRadius="68%"
+          outerRadius="78%"
           paddingAngle={1}
           labelLine={false}
         >
           {slices.map((entry, i) => (
-            <Cell key={`${entry.name}-${i}`} fill={PIZZA_SLICE_COLORS[(idx + i) % PIZZA_SLICE_COLORS.length]} stroke="#fff" strokeWidth={1} />
+            <Cell key={`${entry.name}-${i}`} fill={palette[i]} stroke="#fff" strokeWidth={1} />
           ))}
         </Pie>
         <Tooltip content={pieTooltip} />

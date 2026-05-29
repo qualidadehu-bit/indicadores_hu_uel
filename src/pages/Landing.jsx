@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardList, BarChart2, ChevronRight, Lock } from 'lucide-react';
+import { ClipboardList, BarChart2, ChevronRight, Lock, Users } from 'lucide-react';
 import { api } from '@/api/apiClient';
 import LoginModal from '@/components/LoginModal';
 import ResetPasswordModal from '@/components/ResetPasswordModal';
 import { useToast } from '@/components/ui/use-toast';
+import { setStoredUserSession } from '@/lib/sessionStorage';
 
 /**
  * Corpo JSON retornado por `api.functions.invoke('autenticar', …)` (worker → GAS).
@@ -19,6 +20,18 @@ export default function Landing() {
   const { toast } = useToast();
   const [loginModal, setLoginModal] = useState(null); // null | 'escritorio' | 'gestor'
   const [resetModal, setResetModal] = useState(false);
+  const [resetToken, setResetToken] = useState('');
+  const [postLoginRedirect, setPostLoginRedirect] = useState('/dashboard');
+  const [openGroup, setOpenGroup] = useState(null); // null | 'dashboard' | 'equipe'
+
+  const openLoginModal = (tipo, redirectTo = '/dashboard') => {
+    setPostLoginRedirect(redirectTo);
+    setLoginModal(tipo);
+  };
+
+  const toggleGroup = (groupKey) => {
+    setOpenGroup((prev) => (prev === groupKey ? null : groupKey));
+  };
 
   const handleLogin = async (login, password, tipo) => {
     try {
@@ -33,15 +46,12 @@ export default function Landing() {
       const data = /** @type {AutenticarInvokeData} */ (response.data);
 
       if (data.success) {
-        localStorage.setItem(
-          'userSession',
-          JSON.stringify({
-            ...data.conta,
-            tipo,
-          })
-        );
+        setStoredUserSession({
+          ...data.conta,
+          tipo,
+        });
         toast({ title: 'Login realizado com sucesso!' });
-        window.location.href = '/dashboard';
+        window.location.href = postLoginRedirect || '/dashboard';
       } else {
         toast({
           title: 'Login falhou',
@@ -58,11 +68,25 @@ export default function Landing() {
     }
   };
 
+  const handleRequestResetToken = async (pin) => {
+    const response = await api.functions.invoke('autenticar', {
+      action: 'request_reset_token',
+      pin,
+    });
+    /** @type {{ success?: boolean, message?: string, reset_token?: string }} */
+    const payload = /** @type {any} */ (response.data || {});
+    if (!payload.success || !payload.reset_token) {
+      throw new Error(payload.message || 'PIN inválido.');
+    }
+    setResetToken(String(payload.reset_token));
+  };
+
   const handleReset = async (newPassword) => {
     try {
       const response = await api.functions.invoke('autenticar', {
         newPassword,
         action: 'reset',
+        reset_token: resetToken,
       });
 
       /** @type {AutenticarInvokeData} */
@@ -71,6 +95,7 @@ export default function Landing() {
       if (resetData.success) {
         toast({ title: 'Senha redefinida com sucesso!' });
         setResetModal(false);
+        setResetToken('');
       } else {
         toast({
           title: 'Não foi possível redefinir',
@@ -84,6 +109,7 @@ export default function Landing() {
         description: e.message || 'Falha ao conectar ao servidor.',
         variant: 'destructive',
       });
+      throw e;
     }
   };
 
@@ -138,53 +164,129 @@ export default function Landing() {
 
         <div className="w-full max-w-[360px] mt-12 md:mt-16">
           <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground text-center mb-7">
-            Selecione seu acesso
+            Selecione uma área
           </p>
 
-          {/* Card 1 — Escritório da Qualidade */}
+          {/* Card principal — Dashboard */}
           <button
-            onClick={() => setLoginModal('escritorio')}
+            onClick={() => toggleGroup('dashboard')}
             className="group flex items-center gap-4 w-full bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 px-5 py-5 mb-4 cursor-pointer"
           >
             <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/15 transition-colors">
-              <ClipboardList className="w-5 h-5 text-primary" />
+              <BarChart2 className="w-5 h-5 text-primary" />
             </div>
             <div className="flex-1 text-left">
-              <p className="font-jakarta font-bold text-foreground text-[15px]">Escritório da Qualidade</p>
-              <p className="text-sm text-muted-foreground mt-0.5">Acesso completo — gestor geral</p>
+              <p className="font-jakarta font-bold text-foreground text-[15px]">Dashboard</p>
+              <p className="text-sm text-muted-foreground mt-0.5">Indicadores assistenciais e comissões</p>
             </div>
-            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+            <ChevronRight
+              className={`w-4 h-4 text-muted-foreground group-hover:text-primary transition-all duration-300 ${
+                openGroup === 'dashboard' ? 'rotate-90 text-primary' : ''
+              }`}
+            />
           </button>
+          <div
+            className={`mb-4 overflow-hidden transition-all duration-300 ease-in-out ${
+              openGroup === 'dashboard' ? 'max-h-[320px] opacity-100' : 'max-h-0 opacity-0'
+            }`}
+          >
+            <div className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-3">
+              <Link
+                to="/visualizacao"
+                className="group flex items-center gap-3 w-full bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-200 px-4 py-4"
+              >
+                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
+                  <BarChart2 className="w-5 h-5 text-blue-600" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="font-jakarta font-bold text-foreground text-[14px]">Dashboard Assistencial</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Visualização dos indicadores — público</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-blue-500 transition-colors" />
+              </Link>
 
-          {/* Card 2 — Membros */}
+              <Link
+                to="/visualizacao/comissoes"
+                className="group flex items-center gap-3 w-full bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-violet-300 transition-all duration-200 px-4 py-4"
+              >
+                <div className="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 group-hover:bg-violet-100 transition-colors">
+                  <Users className="w-5 h-5 text-violet-600" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="font-jakarta font-bold text-foreground text-[14px]">Dashboard Comissões</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Acesso por perfil e escopo de permissão</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-violet-500 transition-colors" />
+              </Link>
+              <Link
+                to="/visualizacao/clinicas"
+                className="group flex items-center gap-3 w-full bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-emerald-300 transition-all duration-200 px-4 py-4"
+              >
+                <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-100 transition-colors">
+                  <Users className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="font-jakarta font-bold text-foreground text-[14px]">Gestão de Práticas Médicas</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Dashboard de clínicas por perfil e escopo</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Card principal — Equipe */}
           <button
-            onClick={() => setLoginModal('gestor')}
+            onClick={() => toggleGroup('equipe')}
             className="group flex items-center gap-4 w-full bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 px-5 py-5 mb-4 cursor-pointer"
           >
             <div className="w-11 h-11 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0 group-hover:bg-orange-100 transition-colors">
-              <Lock className="w-5 h-5 text-orange-600" />
+              <Users className="w-5 h-5 text-orange-600" />
             </div>
             <div className="flex-1 text-left">
-              <p className="font-jakarta font-bold text-foreground text-[15px]">Membros</p>
-              <p className="text-sm text-muted-foreground mt-0.5">Acesso restrito por divisão</p>
+              <p className="font-jakarta font-bold text-foreground text-[15px]">Equipe</p>
+              <p className="text-sm text-muted-foreground mt-0.5">Gestão de perfis e acessos internos</p>
             </div>
-            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-orange-500 transition-colors" />
+            <ChevronRight
+              className={`w-4 h-4 text-muted-foreground group-hover:text-orange-500 transition-all duration-300 ${
+                openGroup === 'equipe' ? 'rotate-90 text-orange-500' : ''
+              }`}
+            />
           </button>
-
-          {/* Card 3 — Acesso ao Dashboard público */}
-          <Link
-            to="/visualizacao"
-            className="group flex items-center gap-4 w-full bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-200 px-5 py-5"
+          <div
+            className={`overflow-hidden transition-all duration-300 ease-in-out ${
+              openGroup === 'equipe' ? 'max-h-[320px] opacity-100' : 'max-h-0 opacity-0'
+            }`}
           >
-            <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
-              <BarChart2 className="w-5 h-5 text-blue-600" />
+            <div className="space-y-3 rounded-2xl border border-orange-200/70 bg-orange-50/50 p-3">
+              <button
+                onClick={() => openLoginModal('escritorio', '/dashboard')}
+                className="group flex items-center gap-3 w-full bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 px-4 py-4 cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/15 transition-colors">
+                  <ClipboardList className="w-5 h-5 text-primary" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="font-jakarta font-bold text-foreground text-[14px]">Escritório da Qualidade</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Acesso completo — gestor geral</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </button>
+
+              <button
+                onClick={() => openLoginModal('gestor', '/dashboard')}
+                className="group flex items-center gap-3 w-full bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 px-4 py-4 cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0 group-hover:bg-orange-100 transition-colors">
+                  <Lock className="w-5 h-5 text-orange-600" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="font-jakarta font-bold text-foreground text-[14px]">Membros</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Acesso restrito por divisão</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-orange-500 transition-colors" />
+              </button>
             </div>
-            <div className="flex-1 text-left">
-              <p className="font-jakarta font-bold text-foreground text-[15px]">Acesso ao Dashboard</p>
-              <p className="text-sm text-muted-foreground mt-0.5">Visualização dos indicadores — público</p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-blue-500 transition-colors" />
-          </Link>
+          </div>
         </div>
       </div>
 
@@ -204,7 +306,11 @@ export default function Landing() {
       {/* Reset Password Modal */}
       <ResetPasswordModal
         open={resetModal}
-        onClose={() => setResetModal(false)}
+        onClose={() => {
+          setResetModal(false);
+          setResetToken('');
+        }}
+        onRequestResetToken={handleRequestResetToken}
         onReset={handleReset}
       />
 

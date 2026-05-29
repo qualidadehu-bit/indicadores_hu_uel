@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Shield } from 'lucide-react';
 import { MESES } from '@/lib/indicadores';
 import {
@@ -6,16 +6,16 @@ import {
   RadarQualidadeHistoricoTable,
 } from '@/components/dashboard/RadarQualidadeUi';
 import { effectiveRadarFaixas } from '@/lib/radarFaixas';
+import { pickLancamentoMes } from '@/lib/lancamentosDashboard';
 
-export default function MispCard({ ano, mes, indicadores, lancamentos, setorId, moduloId, modulo }) {
+export default function MispCard({ ano, mes, indicadores, lancamentos, setorId, moduloId, modulo, getLancamento }) {
   const [mesSelecionado, setMesSelecionado] = useState(mes);
+  useEffect(() => {
+    setMesSelecionado(mes);
+  }, [mes]);
 
   const getLanc = (indicadorId, m) =>
-    lancamentos.find(l =>
-      l.indicador_id === indicadorId &&
-      l.mes === m &&
-      (!setorId || l.setor_id === setorId)
-    );
+    getLancamento ? getLancamento(indicadorId, setorId, m) : pickLancamentoMes(lancamentos, indicadorId, m, setorId);
 
   const inds = [...indicadores].sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
   const faixas = effectiveRadarFaixas(null, modulo, inds);

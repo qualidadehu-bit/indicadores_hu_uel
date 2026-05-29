@@ -7,13 +7,14 @@ import ModulosIndicadores from '@/components/configuracao/ModulosIndicadores';
 import CriarPerfil from '@/components/configuracao/CriarPerfil';
 import { useAuth } from '@/lib/AuthContext';
 import { gestorPodeAcessarConfiguracao } from '@/lib/gestorNivelAcesso';
+import { ENTITY_TYPE_CLINICA, ENTITY_TYPE_COMISSAO, ENTITY_TYPE_SETOR } from '@/lib/entityType';
 
 export default function Configuracao() {
   const { user } = useAuth();
   const isGestor = String(user?.tipo) === 'gestor';
 
   if (isGestor && !gestorPodeAcessarConfiguracao(user)) {
-    return <Navigate to="/lancamento" replace />;
+    return <Navigate to="/lancamento-setores" replace />;
   }
 
   return (
@@ -27,39 +28,95 @@ export default function Configuracao() {
         </p>
       </div>
 
-      <Tabs key={isGestor ? 'gestor' : 'escritorio'} defaultValue={isGestor ? 'modulos' : 'setores'} className="space-y-4">
-        <TabsList className={`grid w-full max-w-md ${isGestor ? 'grid-cols-1' : 'grid-cols-3'}`}>
-          {!isGestor ? (
-            <TabsTrigger value="setores" className="text-xs">
-              <Building2 className="w-3 h-3 mr-1" />
-              Setores
+      <Tabs key={isGestor ? 'gestor' : 'escritorio'} defaultValue={isGestor ? 'modulos-setores' : 'setores'} className="space-y-4">
+        <div className="w-full overflow-x-auto pb-1">
+          <TabsList className={`w-max min-w-full ${isGestor ? 'max-w-5xl justify-start' : 'max-w-6xl justify-start'}`}>
+            {!isGestor ? (
+              <TabsTrigger value="setores" className="text-xs">
+                <Building2 className="w-3 h-3 mr-1" />
+                Novos Setores
+              </TabsTrigger>
+            ) : null}
+            {!isGestor ? (
+              <TabsTrigger value="comissoes" className="text-xs">
+                <Building2 className="w-3 h-3 mr-1" />
+                Novas Comissões
+              </TabsTrigger>
+            ) : null}
+            {!isGestor ? (
+              <TabsTrigger value="praticas-medicas" className="text-xs">
+                <Building2 className="w-3 h-3 mr-1" />
+                Gestão de Práticas Médicas
+              </TabsTrigger>
+            ) : null}
+            <TabsTrigger value="modulos-setores" className="text-xs">
+              <Layers className="w-3 h-3 mr-1" />
+              Módulos Setores
             </TabsTrigger>
-          ) : null}
-          <TabsTrigger value="modulos" className="text-xs">
-            <Layers className="w-3 h-3 mr-1" />
-            Módulos
-          </TabsTrigger>
-          {!isGestor ? (
-            <TabsTrigger value="perfis" className="text-xs">
-              👤 Perfis
+            <TabsTrigger value="modulos-comissoes" className="text-xs">
+              <Layers className="w-3 h-3 mr-1" />
+              Módulos Comissões
             </TabsTrigger>
-          ) : null}
-        </TabsList>
+            <TabsTrigger value="modulos-praticas-medicas" className="text-xs">
+              <Layers className="w-3 h-3 mr-1" />
+              Módulos Clínicas
+            </TabsTrigger>
+            {!isGestor ? (
+              <TabsTrigger value="perfis" className="text-xs">
+                👤 Novos Perfis
+              </TabsTrigger>
+            ) : null}
+          </TabsList>
+        </div>
 
         {!isGestor ? (
           <TabsContent value="setores">
             <Card>
               <CardContent className="pt-5">
-                <DivisoesSetores />
+                <DivisoesSetores entityType={ENTITY_TYPE_SETOR} title="Novos Setores (lógica hospitalar atual)" />
               </CardContent>
             </Card>
           </TabsContent>
         ) : null}
 
-        <TabsContent value="modulos">
+        {!isGestor ? (
+          <TabsContent value="comissoes">
+            <Card>
+              <CardContent className="pt-5">
+                <DivisoesSetores entityType={ENTITY_TYPE_COMISSAO} title="Novas Comissões" />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+        {!isGestor ? (
+          <TabsContent value="praticas-medicas">
+            <Card>
+              <CardContent className="pt-5">
+                <DivisoesSetores entityType={ENTITY_TYPE_CLINICA} title="Gestão de Práticas Médicas" />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+
+        <TabsContent value="modulos-setores">
           <Card>
             <CardContent className="pt-5">
-              <ModulosIndicadores />
+              <ModulosIndicadores entityType={ENTITY_TYPE_SETOR} title="Módulos Setores" />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="modulos-comissoes">
+          <Card>
+            <CardContent className="pt-5">
+              <ModulosIndicadores entityType={ENTITY_TYPE_COMISSAO} title="Módulos Comissões" />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="modulos-praticas-medicas">
+          <Card>
+            <CardContent className="pt-5">
+              <ModulosIndicadores entityType={ENTITY_TYPE_CLINICA} title="Módulos Clínicas" />
             </CardContent>
           </Card>
         </TabsContent>

@@ -8,8 +8,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import BadgeStatusMeta from '@/components/BadgeStatusMeta';
+import PageFiltersSidebar from '@/components/PageFiltersSidebar';
 import { calcularStatusMeta, getStatusConfig, STATUS_META, MESES_COMPLETO, DIRECAO_META } from '@/lib/indicadores';
 import { filtrarIndicadoresPorDivisao, filtrarIndicadoresPorSetorWhitelist } from '@/lib/indicadorDivisao';
+import { ENTITY_TYPE_SETOR } from '@/lib/entityType';
 
 const STATUS_ICONS = {
   [STATUS_META.OK]: CheckCircle2,
@@ -24,17 +26,24 @@ export default function VisaoExecutiva({ ano, mes }) {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroDivisao, setFiltroDivisao] = useState('todos');
   const { user } = useAuth();
+  const domainType = ENTITY_TYPE_SETOR;
 
-  const { data: setores = [] } = useQuery({ queryKey: ['setores'], queryFn: () => api.entities.Setor.list() });
+  const { data: setores = [] } = useQuery({
+    queryKey: ['setores', domainType],
+    queryFn: () => api.entities.Setor.filter({ entity_type: domainType }),
+  });
   const setoresVis = useMemo(() => getSetoresVisiveisParaUsuario(setores, user), [setores, user]);
-  const { data: indicadores = [] } = useQuery({ queryKey: ['indicadores'], queryFn: () => api.entities.Indicador.list() });
+  const { data: indicadores = [] } = useQuery({
+    queryKey: ['indicadores', domainType],
+    queryFn: () => api.entities.Indicador.filter({ entity_type: domainType }),
+  });
   const { data: lancamentos = [] } = useQuery({
-    queryKey: ['lancamentos', anoAtual, mesAtual],
-    queryFn: () => api.entities.Lancamento.filter({ ano: anoAtual, mes: mesAtual }),
+    queryKey: ['lancamentos', domainType, anoAtual, mesAtual],
+    queryFn: () => api.entities.Lancamento.filter({ ano: anoAtual, mes: mesAtual, entity_type: domainType }),
   });
   const { data: metas = [] } = useQuery({
-    queryKey: ['metas', anoAtual],
-    queryFn: () => api.entities.Meta.filter({ ano: anoAtual }),
+    queryKey: ['metas', domainType, anoAtual],
+    queryFn: () => api.entities.Meta.filter({ ano: anoAtual, entity_type: domainType }),
   });
 
   const divisoes = [
@@ -88,6 +97,18 @@ export default function VisaoExecutiva({ ano, mes }) {
       };
     })
     .filter(s => filtroStatus === 'todos' || s.statusGlobal === filtroStatus);
+  const filtrosAtivos = useMemo(() => {
+    return [
+      {
+        key: 'divisao',
+        label: filtroDivisao === 'todos' ? 'Divisão: Todas' : `Divisão: ${filtroDivisao}`,
+      },
+      {
+        key: 'status',
+        label: filtroStatus === 'todos' ? 'Status: Todos' : `Status: ${filtroStatus}`,
+      },
+    ];
+  }, [filtroDivisao, filtroStatus]);
 
   const setoresParaResumoGlobal = useMemo(
     () => setoresVis.filter(s => filtroDivisao === 'todos' || s.divisao === filtroDivisao),
@@ -117,6 +138,38 @@ export default function VisaoExecutiva({ ano, mes }) {
         </div>
       </div>
 
+      <PageFiltersSidebar title="Filtros executivos" chips={filtrosAtivos} horizontal>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Divisão</p>
+                  <Select value={filtroDivisao} onValueChange={setFiltroDivisao}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Todas as divisões" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todas as divisões</SelectItem>
+                      {divisoes.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Status global</p>
+                  <Select value={filtroStatus} onValueChange={setFiltroStatus}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Todos os status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value={STATUS_META.OK}>OK</SelectItem>
+                      <SelectItem value={STATUS_META.ATENCAO}>Atenção</SelectItem>
+                      <SelectItem value={STATUS_META.CRITICO}>Crítico</SelectItem>
+                      <SelectItem value={STATUS_META.SEM_DADOS}>Sem Dados</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+      </PageFiltersSidebar>
+
       {/* Global Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
@@ -142,31 +195,6 @@ export default function VisaoExecutiva({ ano, mes }) {
             </Card>
           );
         })}
-      </div>
-
-      {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <Select value={filtroDivisao} onValueChange={setFiltroDivisao}>
-          <SelectTrigger className="w-44 h-9 text-sm">
-            <SelectValue placeholder="Todas as divisões" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todas as divisões</SelectItem>
-            {divisoes.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-          <SelectTrigger className="w-36 h-9 text-sm">
-            <SelectValue placeholder="Todos os status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value={STATUS_META.OK}>OK</SelectItem>
-            <SelectItem value={STATUS_META.ATENCAO}>Atenção</SelectItem>
-            <SelectItem value={STATUS_META.CRITICO}>Crítico</SelectItem>
-            <SelectItem value={STATUS_META.SEM_DADOS}>Sem Dados</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
       {/* Sector Grid */}

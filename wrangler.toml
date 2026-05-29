@@ -8,7 +8,7 @@ compatibility_date = "2024-05-11"
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = [ "/api", "/health" ]
+run_worker_first = [ "/api", "/api/ai/*", "/health" ]
 
 # Segredos e URLs sensíveis: use `wrangler secret put` (produção) ou `.dev.vars` (local).
 # Não coloque GAS_WEBAPP_URL nem GAS_SECRET em [vars] — eles ficam fora do repositório.

@@ -4,6 +4,7 @@
 !.env.example
 .dev.vars
 worker/.dev.vars
+.wrangler/
 
 # Logs
 /logs

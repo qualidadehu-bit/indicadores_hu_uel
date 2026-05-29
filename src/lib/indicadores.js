@@ -3,6 +3,7 @@ export const DIRECAO_META = {
   MAIOR_E_MELHOR: 'MAIOR_E_MELHOR',
   MENOR_E_MELHOR: 'MENOR_E_MELHOR',
   META_CONTRATUAL: 'META_CONTRATUAL',
+  NAO_SE_APLICA: 'NAO_SE_APLICA',
 };
 
 // Status possíveis
@@ -11,6 +12,7 @@ export const STATUS_META = {
   ATENCAO: 'ATENCAO',
   CRITICO: 'CRITICO',
   SEM_DADOS: 'SEM_DADOS',
+  NA: 'NA',
 };
 
 /**
@@ -21,6 +23,9 @@ export const STATUS_META = {
  * @returns {string} status
  */
 export function calcularStatusMeta(valor, meta, direcao = DIRECAO_META.MENOR_E_MELHOR) {
+  if (direcao === DIRECAO_META.NAO_SE_APLICA) {
+    return STATUS_META.NA;
+  }
   if (valor === null || valor === undefined || meta === null || meta === undefined) {
     return STATUS_META.SEM_DADOS;
   }
@@ -83,6 +88,8 @@ export function calcularTendencia(valorAtual, valorAnterior, direcao = DIRECAO_M
  */
 export function getStatusConfig(status) {
   switch (status) {
+    case STATUS_META.NA:
+      return { label: 'N/A', color: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-200', dot: 'bg-slate-400' };
     case STATUS_META.OK:
       return { label: 'OK', color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500' };
     case STATUS_META.ATENCAO:

@@ -1,35 +1,35 @@
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, BarChart3, ClipboardList, Eye, LayoutDashboard, Settings, Menu, X, LogOut } from 'lucide-react';
+import { Activity, Menu, PanelLeft, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-import { gestorPodeAcessarConfiguracao } from '@/lib/gestorNivelAcesso';
 import { buildAnosDisponiveis } from '@/lib/indicadores';
-
-const NAV_ITEMS = [
-  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/lancamento', label: 'Lançamento', icon: ClipboardList },
-  { path: '/comparacao', label: 'Comparação', icon: BarChart3 },
-  { path: '/visao-executiva', label: 'Visão Executiva', icon: Eye },
-  { path: '/configuracao', label: 'Configuração', icon: Settings },
-];
+import { getVisibleNavItems } from '@/lib/appNavigation';
+import { clearStoredUserSession } from '@/lib/sessionStorage';
 
 const ANOS = buildAnosDisponiveis();
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
+export default function AppHeader({
+  ano,
+  mes,
+  onAnoChange,
+  onMesChange,
+  isPublic = false,
+  showSidebarControls = false,
+  isSidebarCollapsed = false,
+  onSidebarToggle,
+  onMobileNavOpen,
+}) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user } = useAuth();
-  const navItems = useMemo(() => {
-    if (gestorPodeAcessarConfiguracao(user)) return NAV_ITEMS;
-    return NAV_ITEMS.filter((item) => item.path !== '/configuracao');
-  }, [user]);
+  const navItems = useMemo(() => getVisibleNavItems(user, isPublic), [user, isPublic]);
 
   return (
-    <header className="sticky top-0 z-50 bg-sidebar text-sidebar-foreground shadow-lg">
+    <header className="sticky top-0 z-50 bg-sidebar/95 text-sidebar-foreground shadow-lg border-b border-sidebar-border/70 backdrop-blur supports-[backdrop-filter]:bg-sidebar/85">
       <div className="max-w-screen-2xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -43,14 +43,15 @@ export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
             </div>
           </div>
 
-          {/* Desktop Nav */}
+          {/* Desktop Nav (public layout only) */}
+          {isPublic && (
           <nav className="hidden lg:flex items-center gap-1">
             {navItems.map(({ path, label, icon: Icon }) => (
               <Link
                 key={path}
                 to={path}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150',
+                  'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary',
                   location.pathname === path
                     ? 'bg-sidebar-primary/20 text-sidebar-primary'
                     : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent'
@@ -61,9 +62,32 @@ export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
               </Link>
             ))}
           </nav>
+          )}
 
           {/* Controls */}
           <div className="flex items-center gap-2">
+            {showSidebarControls && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hidden lg:flex text-sidebar-foreground hover:bg-sidebar-accent"
+                  title={isSidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}
+                  onClick={onSidebarToggle}
+                >
+                  <PanelLeft className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="lg:hidden text-sidebar-foreground hover:bg-sidebar-accent"
+                  title="Abrir menu"
+                  onClick={onMobileNavOpen}
+                >
+                  <Menu className="w-5 h-5" />
+                </Button>
+              </>
+            )}
             <Select value={String(mes)} onValueChange={v => onMesChange(Number(v))}>
               <SelectTrigger className="h-8 w-20 text-xs bg-sidebar-accent border-sidebar-border text-sidebar-foreground">
                 <SelectValue />
@@ -88,27 +112,29 @@ export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
               variant="ghost"
               size="icon"
               className="text-sidebar-foreground hover:bg-sidebar-accent"
-              title="Sair"
+              title={isPublic ? 'Entrar' : 'Sair'}
               onClick={() => {
-                localStorage.removeItem('userSession');
+                if (!isPublic) clearStoredUserSession();
                 window.location.href = '/';
               }}
             >
               <LogOut className="w-4 h-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="lg:hidden text-sidebar-foreground hover:bg-sidebar-accent"
-              onClick={() => setMobileOpen(!mobileOpen)}
-            >
-              {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </Button>
+            {isPublic && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden text-sidebar-foreground hover:bg-sidebar-accent"
+                onClick={() => setMobileOpen(!mobileOpen)}
+              >
+                {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </Button>
+            )}
           </div>
         </div>
 
         {/* Mobile Nav */}
-        {mobileOpen && (
+        {isPublic && mobileOpen && (
           <div className="lg:hidden pb-3 border-t border-sidebar-border pt-2 flex flex-col gap-1">
             {navItems.map(({ path, label, icon: Icon }) => (
               <Link
@@ -116,7 +142,7 @@ export default function AppHeader({ ano, mes, onAnoChange, onMesChange }) {
                 to={path}
                 onClick={() => setMobileOpen(false)}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                  'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary',
                   location.pathname === path
                     ? 'bg-sidebar-primary/20 text-sidebar-primary'
                     : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent'

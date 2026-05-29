@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import PageFiltersSidebar from '@/components/PageFiltersSidebar';
 import BadgeTendencia from '@/components/BadgeTendencia';
 import BadgeStatusMeta from '@/components/BadgeStatusMeta';
 import { MESES, MESES_COMPLETO, calcularStatusMeta, calcularTendencia, buildAnosDisponiveis } from '@/lib/indicadores';
@@ -14,6 +15,13 @@ import { filtrarIndicadoresPorDivisao, filtrarIndicadoresPorSetorWhitelist, indi
 import { useAuth } from '@/lib/AuthContext';
 import { getSetoresVisiveisParaUsuario } from '@/lib/gestorSession';
 import { drawPdfCover, loadPdfCoverAssets } from '@/lib/pdfCover';
+import { calcStatus, statusColor } from '@/lib/metaStatus';
+import {
+  DASHBOARD_SCOPE_LEGACY,
+  filtrarIndicadoresPorDashboardScope,
+  filtrarModulosPorDashboardScope,
+} from '@/lib/dashboardScope';
+import { ENTITY_TYPE_SETOR } from '@/lib/entityType';
 
 /**
  * @typedef {Object} SetorEntity
@@ -58,29 +66,6 @@ function pdfSetFillRgb(doc, rgb) {
 }
 function pdfSetTextRgb(doc, rgb) {
   doc.setTextColor(rgb[0], rgb[1], rgb[2]);
-}
-
-function calcStatus(valor, metaVal, direcao) {
-  if (valor === null || valor === undefined || metaVal === null || metaVal === undefined) {
-    return valor !== null && valor !== undefined ? 'Sem meta' : 'Sem dados';
-  }
-  const diff = valor - metaVal;
-  if (direcao === 'MAIOR_E_MELHOR') {
-    if (diff >= 0) return 'OK';
-    if (diff >= -metaVal * 0.1) return 'Atenção';
-    return 'Crítico';
-  } else {
-    if (diff <= 0) return 'OK';
-    if (diff <= metaVal * 0.1) return 'Atenção';
-    return 'Crítico';
-  }
-}
-
-function statusColor(s) {
-  if (s === 'OK') return [34, 139, 34];
-  if (s === 'Atenção') return [210, 140, 0];
-  if (s === 'Crítico') return [200, 0, 0];
-  return [140, 140, 140];
 }
 
 /** Média aritmética dos lançamentos do indicador nos setores listados (ignora ausentes). */
@@ -383,8 +368,13 @@ export default function Comparacao() {
   const [moduloId, setModuloId] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
   const { user } = useAuth();
+  const dashboardScopeAtivo = DASHBOARD_SCOPE_LEGACY;
+  const domainType = ENTITY_TYPE_SETOR;
 
-  const { data: setores = [] } = useQuery({ queryKey: ['setores'], queryFn: () => api.entities.Setor.list() });
+  const { data: setores = [] } = useQuery({
+    queryKey: ['setores', domainType],
+    queryFn: () => api.entities.Setor.filter({ entity_type: domainType }),
+  });
   const setoresVis = useMemo(
     () => /** @type {SetorEntity[]} */ (getSetoresVisiveisParaUsuario(setores, user)),
     [setores, user]
@@ -424,14 +414,32 @@ export default function Comparacao() {
     }
   }, [modoAgrupamento, divisoesDisponiveis, divisaoNome]);
 
-  const { data: modulos = [] } = useQuery({ queryKey: ['modulos'], queryFn: () => api.entities.Modulo.list() });
+  const { data: modulos = [] } = useQuery({
+    queryKey: ['modulos', domainType],
+    queryFn: () => api.entities.Modulo.filter({ entity_type: domainType }),
+  });
   const { data: indicadores = [] } = useQuery({
-    queryKey: ['indicadores'],
+    queryKey: ['indicadores', domainType],
     queryFn: async () => {
-      const list = await api.entities.Indicador.list();
+      const list = await api.entities.Indicador.filter({ entity_type: domainType });
       return /** @type {IndicadorEntity[]} */ (list);
     },
   });
+  const modulosById = useMemo(
+    () => new Map(modulos.map((m) => [String(m.id), m])),
+    [modulos]
+  );
+  /** @type {Array<{ id: string|number, nome?: string } & Record<string, unknown>>} */
+  const modulosScoped = useMemo(
+    () => /** @type {Array<{ id: string|number, nome?: string } & Record<string, unknown>>} */ (
+      filtrarModulosPorDashboardScope(modulos, dashboardScopeAtivo)
+    ),
+    [modulos, dashboardScopeAtivo]
+  );
+  const indicadoresScoped = useMemo(
+    () => filtrarIndicadoresPorDashboardScope(indicadores, modulosById, dashboardScopeAtivo),
+    [indicadores, modulosById, dashboardScopeAtivo]
+  );
 
   const setorSelecionado = useMemo(
     () => (modoAgrupamento === 'setor' ? setoresVis.find((s) => String(s.id) === String(setorId)) : null),
@@ -446,8 +454,8 @@ export default function Comparacao() {
         ? String(setorSelecionado.divisao).trim()
         : null;
   const indicadoresAposDivisao = useMemo(
-    () => /** @type {IndicadorEntity[]} */ (filtrarIndicadoresPorDivisao(indicadores, divisaoComparacao)),
-    [indicadores, divisaoComparacao]
+    () => /** @type {IndicadorEntity[]} */ (filtrarIndicadoresPorDivisao(indicadoresScoped, divisaoComparacao)),
+    [indicadoresScoped, divisaoComparacao]
   );
   const indicadoresFiltrados = useMemo(() => {
     if (modoAgrupamento === 'setor' && setorSelecionado) {
@@ -469,24 +477,24 @@ export default function Comparacao() {
   const lancamentosSetorEnabled = modoAgrupamento === 'setor' && !!periodoA.mes && !!setorId;
 
   const { data: lancamentosASetor = [] } = useQuery({
-    queryKey: ['lancamentos', periodoA.ano, periodoA.mes, setorId],
-    queryFn: () => api.entities.Lancamento.filter({ ano: periodoA.ano, mes: periodoA.mes, setor_id: setorId }),
+    queryKey: ['lancamentos', domainType, periodoA.ano, periodoA.mes, setorId],
+    queryFn: () => api.entities.Lancamento.filter({ ano: periodoA.ano, mes: periodoA.mes, setor_id: setorId, entity_type: domainType }),
     enabled: lancamentosSetorEnabled,
   });
   const { data: lancamentosBSetor = [] } = useQuery({
-    queryKey: ['lancamentos', periodoB.ano, periodoB.mes, setorId],
-    queryFn: () => api.entities.Lancamento.filter({ ano: periodoB.ano, mes: periodoB.mes, setor_id: setorId }),
+    queryKey: ['lancamentos', domainType, periodoB.ano, periodoB.mes, setorId],
+    queryFn: () => api.entities.Lancamento.filter({ ano: periodoB.ano, mes: periodoB.mes, setor_id: setorId, entity_type: domainType }),
     enabled: modoAgrupamento === 'setor' && !!periodoB.mes && !!setorId,
   });
 
   const { data: lancamentosADiv = [] } = useQuery({
-    queryKey: ['lancamentos', periodoA.ano, periodoA.mes, 'all-setores'],
-    queryFn: () => api.entities.Lancamento.filter({ ano: periodoA.ano, mes: periodoA.mes }),
+    queryKey: ['lancamentos', domainType, periodoA.ano, periodoA.mes, 'all-setores'],
+    queryFn: () => api.entities.Lancamento.filter({ ano: periodoA.ano, mes: periodoA.mes, entity_type: domainType }),
     enabled: modoAgrupamento === 'divisao' && !!periodoA.mes && setorIdsNaDivisao.length > 0,
   });
   const { data: lancamentosBDiv = [] } = useQuery({
-    queryKey: ['lancamentos', periodoB.ano, periodoB.mes, 'all-setores'],
-    queryFn: () => api.entities.Lancamento.filter({ ano: periodoB.ano, mes: periodoB.mes }),
+    queryKey: ['lancamentos', domainType, periodoB.ano, periodoB.mes, 'all-setores'],
+    queryFn: () => api.entities.Lancamento.filter({ ano: periodoB.ano, mes: periodoB.mes, entity_type: domainType }),
     enabled: modoAgrupamento === 'divisao' && !!periodoB.mes && setorIdsNaDivisao.length > 0,
   });
 
@@ -498,13 +506,13 @@ export default function Comparacao() {
     (modoAgrupamento === 'divisao' && !!divisaoNome && setorIdsNaDivisao.length > 0);
 
   const { data: metasA = [] } = useQuery({
-    queryKey: ['metas', periodoA.ano, 'comparacao'],
-    queryFn: () => api.entities.Meta.filter({ ano: periodoA.ano }),
+    queryKey: ['metas', domainType, periodoA.ano, 'comparacao'],
+    queryFn: () => api.entities.Meta.filter({ ano: periodoA.ano, entity_type: domainType }),
     enabled: metasEnabled,
   });
   const { data: metasB = [] } = useQuery({
-    queryKey: ['metas', periodoB.ano, 'comparacao'],
-    queryFn: () => api.entities.Meta.filter({ ano: periodoB.ano }),
+    queryKey: ['metas', domainType, periodoB.ano, 'comparacao'],
+    queryFn: () => api.entities.Meta.filter({ ano: periodoB.ano, entity_type: domainType }),
     enabled: metasEnabled,
   });
   const metas = [...metasA, ...metasB];
@@ -530,7 +538,7 @@ export default function Comparacao() {
   const labelB = `${MESES_COMPLETO[periodoB.mes - 1]} / ${periodoB.ano}`;
 
   const modulosFiltrados = /** @type {ModuloEntity[]} */ (
-    moduloId ? modulos.filter((m) => m.id === moduloId) : modulos
+    moduloId ? modulosScoped.filter((m) => m.id === moduloId) : modulosScoped
   );
 
   const handleExportPDF = async () => {
@@ -561,6 +569,31 @@ export default function Comparacao() {
   const dadosComparacaoProntos =
     (modoAgrupamento === 'setor' && !!setorId) ||
     (modoAgrupamento === 'divisao' && !!divisaoNome && setorIdsNaDivisao.length > 0);
+  const filtrosAtivos = useMemo(() => {
+    const chips = [
+      { key: 'periodoA', label: `Período A: ${labelA}` },
+      { key: 'periodoB', label: `Período B: ${labelB}` },
+      { key: 'agrupamento', label: `Comparar por: ${modoAgrupamento === 'setor' ? 'Setor' : 'Divisão'}` },
+    ];
+    if (modoAgrupamento === 'setor') {
+      chips.push({
+        key: 'contexto',
+        label: `Setor: ${String(setorSelecionado?.nome || 'Não selecionado')}`,
+      });
+    } else {
+      chips.push({
+        key: 'contexto',
+        label: `Divisão: ${divisaoNome || 'Não selecionada'}`,
+      });
+    }
+    chips.push({
+      key: 'modulo',
+      label: moduloId
+        ? `Módulo: ${String(modulosScoped.find((m) => String(m.id) === String(moduloId))?.nome || moduloId)}`
+        : 'Módulo: Todos',
+    });
+    return chips;
+  }, [labelA, labelB, modoAgrupamento, setorSelecionado, divisaoNome, moduloId, modulosScoped]);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-screen-xl mx-auto">
@@ -585,11 +618,9 @@ export default function Comparacao() {
         </Button>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-4">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <div className="col-span-2 md:col-span-1">
+      <PageFiltersSidebar title="Filtros da comparação" chips={filtrosAtivos} horizontal>
+          <div className="grid grid-cols-1 gap-3">
+            <div>
               <p className="text-xs font-medium text-muted-foreground mb-1.5">Período A — Mês</p>
               <Select value={String(periodoA.mes)} onValueChange={v => setPeriodoA(p => ({ ...p, mes: Number(v) }))}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -603,10 +634,7 @@ export default function Comparacao() {
                 <SelectContent>{ANOS.map(a => <SelectItem key={a} value={String(a)}>{a}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="hidden md:flex items-end justify-center pb-1">
-              <ArrowLeftRight className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="col-span-2 md:col-span-1">
+            <div>
               <p className="text-xs font-medium text-muted-foreground mb-1.5">Período B — Mês</p>
               <Select value={String(periodoB.mes)} onValueChange={v => setPeriodoB(p => ({ ...p, mes: Number(v) }))}>
                 <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -622,7 +650,7 @@ export default function Comparacao() {
             </div>
           </div>
           <Separator className="my-3" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-1.5">Comparar por</p>
               <Select value={modoAgrupamento} onValueChange={setModoAgrupamento}>
@@ -702,16 +730,15 @@ export default function Comparacao() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all">Todos os módulos</SelectItem>
-                {modulos.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
+                {modulosScoped.map((m) => (
+                  <SelectItem key={String(m.id)} value={String(m.id)}>
                     {m.nome}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-        </CardContent>
-      </Card>
+      </PageFiltersSidebar>
 
       {/* Tables grouped by module */}
       <div className="space-y-5">
@@ -740,10 +767,10 @@ export default function Comparacao() {
                 <span className="text-xs text-muted-foreground">{inds.length} indicadores</span>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-auto max-h-[30rem]">
+                <table className="w-full text-sm min-w-[860px]">
                   <thead>
-                    <tr className="border-b text-xs text-muted-foreground uppercase tracking-wide bg-secondary/30">
+                    <tr className="border-b text-xs text-muted-foreground uppercase tracking-wide bg-secondary/60 sticky top-0 z-10">
                       <th className="text-left py-2.5 px-4 font-semibold">Indicador</th>
                       <th className="text-center py-2.5 px-3 font-semibold">{labelA}</th>
                       <th className="text-center py-2.5 px-3 font-semibold">{labelB}</th>
@@ -765,7 +792,7 @@ export default function Comparacao() {
                       const status = calcularStatusMeta(vB, meta?.valor, ind.tipo_direcao_meta);
 
                       return (
-                        <tr key={ind.id} className={`border-b border-dashed hover:bg-secondary/20 transition-colors ${idx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                        <tr key={ind.id} className={`border-b border-dashed transition-colors hover:bg-secondary/25 ${idx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
                           <td className="py-3 px-4">
                             <p className="font-medium text-sm">{ind.label || ind.nome}</p>
                             {ind.unidade && <p className="text-xs text-muted-foreground">{ind.unidade}</p>}
@@ -809,7 +836,7 @@ export default function Comparacao() {
           );
         })}
 
-        {modulos.length === 0 && (
+        {modulosScoped.length === 0 && (
           <p className="text-center text-muted-foreground py-12">Nenhum módulo configurado</p>
         )}
       </div>

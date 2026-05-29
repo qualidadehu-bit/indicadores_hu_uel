@@ -1,14 +1,9 @@
 import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { getStoredUserSession } from '@/lib/sessionStorage';
 
 function readSession() {
-  try {
-    const raw = localStorage.getItem('userSession');
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return getStoredUserSession();
 }
 
 export default function PageNotFound() {

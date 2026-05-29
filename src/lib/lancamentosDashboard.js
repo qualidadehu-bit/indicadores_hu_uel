@@ -1,3 +1,5 @@
+import { parseLocaleNumber } from '@/lib/numberParsing';
+
 /** Compara ids de indicador/setor entre API (string | number) e planilha. */
 export function idsMatch(a, b) {
   if (a === b) return true;
@@ -14,8 +16,8 @@ export function aggregateValorLancamentos(matches) {
   if (!matches?.length) return undefined;
   const raw = matches.map((l) => l.valor).filter((v) => v !== null && v !== undefined && v !== '');
   if (!raw.length) return undefined;
-  const nums = raw.map((v) => Number(v)).filter((n) => !Number.isNaN(n));
-  if (nums.length !== raw.length) return Number(raw[0]);
+  const nums = raw.map((v) => parseLocaleNumber(v)).filter((n) => n != null);
+  if (nums.length !== raw.length) return parseLocaleNumber(raw[0]);
   if (nums.length === 1) return nums[0];
   const allPct = nums.every((n) => n >= 0 && n <= 100);
   if (allPct) return Number((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1));

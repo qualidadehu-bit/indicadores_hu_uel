@@ -9,7 +9,7 @@
  */
 export function normalizeTipoGrafico(raw) {
   const t = String(raw || 'linha').toLowerCase();
-  if (['linha', 'barra', 'area', 'radar', 'pizza'].includes(t)) return t;
+  if (t === 'linha' || t === 'barra' || t === 'area' || t === 'radar' || t === 'pizza') return t;
   return 'linha';
 }
 

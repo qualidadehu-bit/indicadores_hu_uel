@@ -1,5 +1,11 @@
 # Copie para .dev.vars na RAIZ do projeto (ao lado de wrangler.toml). Não commitar.
 # Usado por `npm run cf:dev` / `wrangler dev`
 # Se você tinha worker/.dev.vars, mova o arquivo para a raiz e renomeie para .dev.vars
-GAS_SECRET="cole-o-mesmo-valor-de-API_SECRET-do-Google"
-GAS_WEBAPP_URL=https://script.google.com/macros/s/SEU_DEPLOY/exec
+GAS_SECRET="__SET_IN_CLOUDFLARE_SECRET__"
+GAS_WEBAPP_URL="https://script.google.com/macros/s/__SEU_DEPLOY_ID__/exec"
+AUTH_SECRET="__SET_IN_CLOUDFLARE_SECRET__"
+RESET_PIN="__SET_STRONG_RESET_PIN_MIN_12__"
+CORS_ALLOWED_ORIGINS="https://app.seu-dominio.com,https://staging.seu-dominio.com"
+GEMINI_API_KEY="__SET_IN_CLOUDFLARE_SECRET__"
+# Opcional (default no Worker: gemini-2.5-flash-lite)
+# GEMINI_MODEL="gemini-2.5-flash-lite"

@@ -17,7 +17,16 @@
     "cf:dev": "wrangler dev --port 8788 --ip 127.0.0.1",
     "cf:deploy": "npm run build && wrangler deploy",
     "dev:cf": "npm run build && wrangler dev --port 8787 --ip 127.0.0.1",
-    "test:worker": "node scripts/test-worker-post.mjs"
+    "test:worker": "node scripts/test-worker-post.mjs",
+    "test:scope-contract": "node scripts/check-scope-contract.mjs",
+    "test:scope-matrix": "node scripts/scope-scenario-matrix.mjs",
+    "test:scope-matrix:json": "node scripts/scope-scenario-matrix.mjs --json",
+    "test:scope-matrix:report": "node scripts/scope-scenario-matrix.mjs --json --out reports/scope-matrix.json",
+    "test:security-contract": "node scripts/check-security-contract.mjs",
+    "test:security-validation": "node scripts/test-security-validation.mjs",
+    "ci:scope-matrix": "npm run test:scope-matrix:report",
+    "debug:dashboard": "node scripts/diagnosticar-dashboard.mjs",
+    "migrate:entity-type": "node scripts/migrate-entity-type-default-setor.mjs"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^17.0.0",

@@ -29,12 +29,14 @@
  * tipo_direcao_meta, ordem, ativo, icone, cor, meta (se existir na planilha legada), e opcional:
  *   grupo_radar — string livre; no mesmo módulo, indicadores com o mesmo texto (trim, não vazio)
  *   e módulo com tipo_grafico=radar são desenhados num único RadarChart no dashboard genérico.
- *   grupo_serie — string livre; no mesmo módulo, mesmo texto (trim, não vazio) e mesmo tipo
- *   efetivo de gráfico (módulo ou override por indicador; ver tipo_grafico no indicador) →
- *   linha|barra|area: um único gráfico com uma série por indicador (dashboard genérico).
- *   Indicadores com mesmo grupo_serie mas tipos efetivos diferentes viram blocos separados.
- *   Com tipo efetivo pizza e mesmo grupo_serie, o dashboard genérico mostra um gráfico pizza
- *   por indicador (fatias = meses do ano), não um único pizza multi-série.
+ *   grupo_visual — string livre; agrupador visual universal no dashboard (fluxo novo).
+ *   no mesmo módulo, mesmo texto (trim, não vazio) e mesmo tipo efetivo de gráfico
+ *   (módulo ou override por indicador; ver tipo_grafico no indicador) →
+ *   linha|barra|area: um único gráfico com uma série por indicador.
+ *   pizza: um único gráfico com uma fatia por indicador no mês selecionado.
+ *   nome_serie — string livre; nome exibido na legenda (linha/barra) e fatia (pizza).
+ *     Vazio = usa label/nome do indicador.
+ *   grupo_serie — legado; usado apenas como fallback quando grupo_visual estiver vazio.
  *   radar_faixas — opcional (JSON numa única célula). Radar estilo qualidade (escala 0–100%, unidade %).
  *     Formato: [{ "label": "SEGURO", "min": 100, "max": 100, "emoji": "😊", "cor": "#3b82f6" }, ...].
  *     Define legenda lateral e cores dos pontos/tabela histórica. Vazio = padrão MISP no app.
@@ -81,6 +83,30 @@ var SHEET_NAMES = {
   Meta: 'meta',
   Lancamento: 'lancamento',
 };
+
+var ENTITY_TYPE_DEFAULT = 'SETOR';
+var ENTITY_WITH_TYPE = {
+  Setor: true,
+  Modulo: true,
+  Indicador: true,
+  Meta: true,
+  Lancamento: true,
+};
+
+var MAX_BODY_CHARS = 50000;
+var MAX_OBJECT_KEYS = 120;
+var DANGEROUS_KEYS = { __proto__: true, prototype: true, constructor: true };
+var KNOWN_ENTITIES = { Conta: true, Gestor: true, Setor: true, Modulo: true, Indicador: true, Meta: true, Lancamento: true };
+var KNOWN_ENTITY_OPS = { list: true, filter: true, create: true, update: true, delete: true };
+var KNOWN_TOP_LEVEL = { kind: true, entity: true, operation: true, id: true, record: true, filter: true, name: true, payload: true };
+var PASSWORD_HASH_V2_PREFIX = 'v2$';
+var PASSWORD_HASH_ITERATIONS = 12000;
+
+function validationError_(message) {
+  var err = new Error(message || 'Invalid request');
+  err.name = 'ValidationError';
+  throw err;
+}
 
 function getSpreadsheet_() {
   var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
@@ -139,6 +165,7 @@ function matchesFilter_(row, filter) {
     var fv = filter[key];
     if (fv === undefined) continue;
     var rv = row[key];
+    if (rv === undefined) continue;
     if (typeof fv === 'number' || typeof rv === 'number') {
       if (Number(rv) !== Number(fv)) return false;
     } else {
@@ -148,8 +175,112 @@ function matchesFilter_(row, filter) {
   return true;
 }
 
+function normalizeEntityType_(raw) {
+  var value = String(raw == null ? '' : raw).trim().toUpperCase();
+  if (value === 'COMISSAO') return 'COMISSAO';
+  if (value === 'CLINICA') return 'CLINICA';
+  if (value === 'SETOR') return 'SETOR';
+  return ENTITY_TYPE_DEFAULT;
+}
+
+function isPlainObject_(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasDangerousKeyDeep_(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) {
+    for (var ai = 0; ai < value.length; ai++) {
+      if (hasDangerousKeyDeep_(value[ai])) return true;
+    }
+    return false;
+  }
+  var keys = Object.keys(value);
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    if (DANGEROUS_KEYS[key]) return true;
+    if (hasDangerousKeyDeep_(value[key])) return true;
+  }
+  return false;
+}
+
+function sanitizeText_(value, maxLen) {
+  var out = String(value == null ? '' : value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim();
+  var limit = Number(maxLen || 2000);
+  if (out.length > limit) {
+    validationError_('Campo excede limite de tamanho.');
+  }
+  return out;
+}
+
+function escapeFormulaIfNeeded_(value) {
+  var s = sanitizeText_(value, 2000);
+  if (!s) return s;
+  if (/^[=+\-@]/.test(s)) return "'" + s;
+  return s;
+}
+
+function validateAllowedKeys_(obj, allowed, path) {
+  var keys = Object.keys(obj || {});
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    if (!allowed[key]) {
+      validationError_('Campo não permitido em ' + path + ': ' + key);
+    }
+  }
+}
+
+function sanitizeObjectValues_(obj, path) {
+  if (!isPlainObject_(obj)) validationError_(path + ' deve ser objeto JSON.');
+  var keys = Object.keys(obj);
+  if (keys.length > MAX_OBJECT_KEYS) validationError_(path + ' excede limite de campos.');
+  var out = {};
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    if (DANGEROUS_KEYS[key]) validationError_('Campo proibido: ' + key);
+    if (!/^[A-Za-z0-9_ .:-]{1,64}$/.test(key)) validationError_('Nome de campo inválido: ' + key);
+    var value = obj[key];
+    if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'number') {
+      out[key] = value;
+      continue;
+    }
+    if (typeof value === 'string') {
+      out[key] = escapeFormulaIfNeeded_(value);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 200) validationError_('Lista muito grande no campo ' + key);
+      var arr = [];
+      for (var ai = 0; ai < value.length; ai++) {
+        var item = value[ai];
+        if (item === null || item === undefined || typeof item === 'boolean' || typeof item === 'number') arr.push(item);
+        else if (typeof item === 'string') arr.push(escapeFormulaIfNeeded_(item));
+        else validationError_('Item inválido em lista no campo ' + key);
+      }
+      out[key] = arr;
+      continue;
+    }
+    validationError_('Tipo inválido no campo ' + key);
+  }
+  return out;
+}
+
+function withEntityTypeDefault_(entity, obj) {
+  var out = obj || {};
+  if (!ENTITY_WITH_TYPE[entity]) return out;
+  if (out.entity_type == null || String(out.entity_type).trim() === '') {
+    out.entity_type = ENTITY_TYPE_DEFAULT;
+  } else {
+    out.entity_type = normalizeEntityType_(out.entity_type);
+  }
+  return out;
+}
+
 function coerceWrite_(v) {
   if (v === true || v === false) return v;
+  if (typeof v === 'string') return escapeFormulaIfNeeded_(v);
   return v;
 }
 
@@ -306,7 +437,7 @@ function gestorRecordForWrite_(record, sh) {
         'Aba gestor: na linha 1 inclua uma coluna senha_hash (ou Senha) para gravar a senha.'
       );
     }
-    out[hashCol] = sha256Hex_(String(record.senha));
+    out[hashCol] = makePasswordHash_(String(record.senha));
   }
   return out;
 }
@@ -329,6 +460,7 @@ function handleEntity_(body) {
   }
   if (op === 'create') {
     var record = body.record || {};
+    record = withEntityTypeDefault_(entity, record);
     if (!record.id) record.id = Utilities.getUuid();
     if (entity === 'Gestor') {
       record = gestorRecordForWrite_(record, sh);
@@ -338,6 +470,9 @@ function handleEntity_(body) {
   }
   if (op === 'update') {
     var patch = body.record || {};
+    if (ENTITY_WITH_TYPE[entity] && patch.entity_type != null && String(patch.entity_type).trim() !== '') {
+      patch.entity_type = normalizeEntityType_(patch.entity_type);
+    }
     if (entity === 'Gestor') {
       patch = gestorRecordForWrite_(patch, sh);
     }
@@ -359,6 +494,58 @@ function sha256Hex_(text) {
     hex += ('0' + byte.toString(16)).slice(-2);
   }
   return hex;
+}
+
+function makePasswordSalt_() {
+  return Utilities.getUuid().replace(/-/g, '').slice(0, 24);
+}
+
+function hashPasswordV2_(password, salt, iterations) {
+  var rounds = Number(iterations || PASSWORD_HASH_ITERATIONS);
+  if (!isFinite(rounds) || rounds < 1000) rounds = PASSWORD_HASH_ITERATIONS;
+  var value = String(salt || '') + '|' + String(password || '');
+  for (var i = 0; i < rounds; i++) {
+    value = sha256Hex_(value);
+  }
+  return value;
+}
+
+function makePasswordHash_(password) {
+  var salt = makePasswordSalt_();
+  var rounds = PASSWORD_HASH_ITERATIONS;
+  var digest = hashPasswordV2_(password, salt, rounds);
+  return PASSWORD_HASH_V2_PREFIX + rounds + '$' + salt + '$' + digest;
+}
+
+function verifyPasswordHash_(password, storedHash) {
+  var stored = String(storedHash == null ? '' : storedHash).trim();
+  if (!stored) return false;
+  if (stored.indexOf(PASSWORD_HASH_V2_PREFIX) === 0) {
+    var parts = stored.split('$');
+    if (parts.length !== 4) return false;
+    var rounds = Number(parts[1]);
+    var salt = String(parts[2] || '');
+    var expected = String(parts[3] || '');
+    if (!salt || !expected) return false;
+    return hashPasswordV2_(password, salt, rounds) === expected;
+  }
+  // Compatibilidade com legado SHA-256 simples já armazenado.
+  return sha256Hex_(String(password || '')) === stored;
+}
+
+function validatePasswordStrength_(password) {
+  var value = String(password == null ? '' : password);
+  if (value.length < 12 || value.length > 128) return false;
+  var hasUpper = /[A-Z]/.test(value);
+  var hasLower = /[a-z]/.test(value);
+  var hasDigit = /\d/.test(value);
+  var hasSymbol = /[^A-Za-z0-9]/.test(value);
+  var score = 0;
+  if (hasUpper) score++;
+  if (hasLower) score++;
+  if (hasDigit) score++;
+  if (hasSymbol) score++;
+  return score >= 3;
 }
 
 function findContaByLoginTipo_(rows, login, tipo) {
@@ -386,7 +573,6 @@ function handleAutenticar_(payload) {
     var login = payload.login;
     var password = payload.password;
     var tipo = payload.tipo;
-    var hash = sha256Hex_(String(password));
 
     if (String(tipo) === 'gestor') {
       var gRows = rowsToObjects_(getSheet_('Gestor'));
@@ -394,11 +580,12 @@ function handleAutenticar_(payload) {
       var ginactive = grow && (grow.ativo === false || grow.ativo === 'FALSE');
       if (grow && !ginactive) {
         var storedHash = gestorStoredHash_(grow);
-        if (storedHash && String(storedHash) === String(hash)) {
+        if (storedHash && verifyPasswordHash_(password, storedHash)) {
           var glogin = String(grow.login != null ? grow.login : grow.nome != null ? grow.nome : login).trim();
           var gunidades = grow.unidades != null ? String(grow.unidades) : '';
           var gdivisoes = grow.divisoes != null ? String(grow.divisoes) : '';
           var gnivel = gestorNivelNormalizedForAuth_(gestorNivelRawFromRow_(grow));
+          var gpermissoes = grow.permissoes_escopo != null ? String(grow.permissoes_escopo) : '';
           return {
             success: true,
             conta: {
@@ -409,6 +596,7 @@ function handleAutenticar_(payload) {
               unidades: gunidades,
               divisoes: gdivisoes,
               nivel_acesso: gnivel,
+              permissoes_escopo: gpermissoes,
             },
           };
         }
@@ -422,7 +610,7 @@ function handleAutenticar_(payload) {
     if (!row || inactive) {
       return { success: false, message: 'Credenciais inválidas ou conta inativa.' };
     }
-    if (String(row.senha_hash) !== String(hash)) {
+    if (!verifyPasswordHash_(password, row.senha_hash)) {
       return { success: false, message: 'Credenciais inválidas.' };
     }
     var conta = { id: row.id, login: row.login, tipo: row.tipo, ativo: row.ativo };
@@ -430,8 +618,8 @@ function handleAutenticar_(payload) {
   }
   if (action === 'reset') {
     var newPassword = payload.newPassword;
-    if (!newPassword || String(newPassword).length < 4) {
-      return { success: false, message: 'Senha muito curta.' };
+    if (!validatePasswordStrength_(newPassword)) {
+      return { success: false, message: 'Senha fraca: use 12+ caracteres com letras, números e símbolo.' };
     }
     var rows = rowsToObjects_(getSheet_('Conta'));
     var esc = null;
@@ -442,7 +630,7 @@ function handleAutenticar_(payload) {
       }
     }
     if (!esc) return { success: false, message: 'Conta escritório não encontrada.' };
-    updateRowById_(getSheet_('Conta'), esc.id, { senha_hash: sha256Hex_(String(newPassword)) });
+    updateRowById_(getSheet_('Conta'), esc.id, { senha_hash: makePasswordHash_(String(newPassword)) });
     return { success: true };
   }
   return { success: false, message: 'Ação inválida.' };
@@ -454,8 +642,68 @@ function handleFunction_(name, payload) {
 }
 
 function parseBody_(e) {
-  if (!e.postData || !e.postData.contents) return {};
-  return JSON.parse(e.postData.contents);
+  if (!e.postData || !e.postData.contents) validationError_('Body vazio.');
+  var raw = String(e.postData.contents || '');
+  if (raw.length > MAX_BODY_CHARS) validationError_('Body excede limite permitido.');
+  var parsed = JSON.parse(raw);
+  if (!isPlainObject_(parsed)) validationError_('Payload deve ser objeto JSON.');
+  if (hasDangerousKeyDeep_(parsed)) validationError_('Payload contém chave proibida.');
+  return parsed;
+}
+
+function validateAutenticarPayload_(payload) {
+  if (!isPlainObject_(payload || {})) validationError_('payload deve ser objeto JSON.');
+  var action = sanitizeText_(payload.action, 64).toLowerCase();
+  if (action === 'login') {
+    validateAllowedKeys_(payload, { action: true, login: true, password: true, tipo: true }, 'payload');
+    if (!sanitizeText_(payload.login, 80)) validationError_('Login obrigatório.');
+    if (!sanitizeText_(payload.password, 128)) validationError_('Senha obrigatória.');
+    var tipo = sanitizeText_(payload.tipo, 32).toLowerCase();
+    if (tipo !== 'escritorio' && tipo !== 'gestor') validationError_('Tipo inválido.');
+    return {
+      action: 'login',
+      login: sanitizeText_(payload.login, 80),
+      password: sanitizeText_(payload.password, 128),
+      tipo: tipo,
+    };
+  }
+  if (action === 'reset') {
+    validateAllowedKeys_(payload, { action: true, newPassword: true }, 'payload');
+    var newPassword = sanitizeText_(payload.newPassword, 128);
+    if (!newPassword) validationError_('Nova senha obrigatória.');
+    return { action: 'reset', newPassword: newPassword };
+  }
+  validationError_('Ação inválida.');
+  return {};
+}
+
+function validateRequestBody_(body) {
+  validateAllowedKeys_(body, KNOWN_TOP_LEVEL, 'payload');
+  var kind = sanitizeText_(body.kind, 32).toLowerCase();
+  if (kind === 'entity') {
+    validateAllowedKeys_(body, { kind: true, entity: true, operation: true, id: true, record: true, filter: true }, 'payload');
+    var entity = sanitizeText_(body.entity, 32);
+    var op = sanitizeText_(body.operation, 16).toLowerCase();
+    if (!KNOWN_ENTITIES[entity]) validationError_('Entidade inválida.');
+    if (!KNOWN_ENTITY_OPS[op]) validationError_('Operação inválida.');
+    var out = { kind: 'entity', entity: entity, operation: op };
+    if (op === 'create' || op === 'update') out.record = sanitizeObjectValues_(body.record || {}, 'record');
+    if (op === 'filter') out.filter = sanitizeObjectValues_(body.filter || {}, 'filter');
+    if (op === 'update' || op === 'delete') {
+      var id = sanitizeText_(body.id, 128);
+      if (!id || !/^[A-Za-z0-9._:-]{1,128}$/.test(id)) validationError_('ID inválido.');
+      out.id = id;
+    }
+    return out;
+  }
+  if (kind === 'function') {
+    validateAllowedKeys_(body, { kind: true, name: true, payload: true }, 'payload');
+    var name = sanitizeText_(body.name, 64);
+    if (name !== 'autenticar') validationError_('Função inválida.');
+    return { kind: 'function', name: name, payload: validateAutenticarPayload_(body.payload || {}) };
+  }
+  validationError_('Tipo de payload inválido.');
+  return {};
 }
 
 function verifySecret_(body) {
@@ -468,6 +716,7 @@ function verifySecret_(body) {
 function processRequest_(body) {
   verifySecret_(body);
   delete body._gasSecret;
+  body = validateRequestBody_(body);
   if (body.kind === 'entity') {
     return { ok: true, data: handleEntity_(body) };
   }
@@ -487,8 +736,11 @@ function doPost(e) {
     var out = processRequest_(body);
     return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    var msg = err.message || String(err);
-    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: msg })).setMimeType(
+    var isValidation = err && err.name === 'ValidationError';
+    var traceId = Utilities.getUuid();
+    console.error('[gas] request_error trace=' + traceId + ' type=' + (isValidation ? 'validation' : 'internal'));
+    var clientMsg = isValidation ? 'Requisição inválida.' : 'Erro interno ao processar requisição.';
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: clientMsg, traceId: traceId })).setMimeType(
       ContentService.MimeType.JSON
     );
   }

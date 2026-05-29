@@ -116,7 +116,7 @@ export function serializeRadarFaixas(rows) {
  * Indicador tem prioridade sobre o módulo; vazio = padrão MISP.
  * @param {Record<string, unknown>|null|undefined} ind
  * @param {Record<string, unknown>|null|undefined} modulo
- * @param {Record<string, unknown>[]|null|undefined} [members] — se informado, usa override do primeiro membro com faixas
+ * @param {Record<string, unknown>[]|null|undefined} [members] - se informado, usa override do primeiro membro com faixas
  * @returns {RadarFaixa[]}
  */
 export function effectiveRadarFaixas(ind, modulo, members) {

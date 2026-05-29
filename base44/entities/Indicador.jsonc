@@ -5,7 +5,16 @@
     "nome": { "type": "string" },
     "label": { "type": "string" },
     "unidade": { "type": "string" },
+    "cor": {
+      "type": "string",
+      "description": "Opcional. Cor manual em HEX para o indicador (prioritária quando tipo_direcao_meta=NAO_SE_APLICA)."
+    },
     "modulo_id": { "type": "string" },
+    "entity_type": {
+      "type": "string",
+      "enum": ["SETOR", "COMISSAO", "CLINICA"],
+      "default": "SETOR"
+    },
     "modulo_nome": { "type": "string" },
     "tipo_direcao_meta": {
       "type": "string",
@@ -16,6 +25,14 @@
     "ativo": { "type": "boolean", "default": true },
     "grupo_radar": { "type": "string" },
     "grupo_serie": { "type": "string" },
+    "grupo_visual": {
+      "type": "string",
+      "description": "Opcional. Agrupador visual universal no dashboard (substitui grupo_serie no fluxo novo)."
+    },
+    "nome_serie": {
+      "type": "string",
+      "description": "Opcional. Nome da série/fatia/barra no grupo_visual (fallback: label/nome do indicador)."
+    },
     "tipo_grafico": {
       "type": "string",
       "description": "Opcional. linha|barra|area|pizza|radar (e mapa_calor no UI). Vazio = usar tipo_grafico do m\u00f3dulo."
@@ -29,5 +46,5 @@
       "description": "Opcional. JSON [{\"label\":\"...\",\"indicador_id\":\"...\"}] para pizza customizada (valor = m\u00eas do dashboard). Vazio = pizza por meses."
     }
   },
-  "required": ["nome", "modulo_id"]
+  "required": ["nome", "modulo_id", "entity_type"]
 }

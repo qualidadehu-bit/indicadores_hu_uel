@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
@@ -17,6 +17,9 @@ const SERIES = [
 
 export default function Nr32Card({ ano, mes, indicadores, lancamentos, setorId }) {
   const [mesSelecionado, setMesSelecionado] = useState(mes);
+  useEffect(() => {
+    setMesSelecionado(mes);
+  }, [mes]);
 
   const getLanc = (indicadorId, m) =>
     lancamentos.find(l =>

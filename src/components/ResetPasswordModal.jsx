@@ -5,23 +5,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertCircle } from 'lucide-react';
 
-const PIN_RESET = '2607';
-
-export default function ResetPasswordModal({ open, onClose, onReset }) {
+export default function ResetPasswordModal({ open, onClose, onReset, onRequestResetToken }) {
   const [pin, setPin] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState('pin'); // 'pin' ou 'password'
 
-  const handleSubmitPin = (e) => {
+  const handleSubmitPin = async (e) => {
     e.preventDefault();
-    if (pin === PIN_RESET) {
+    setLoading(true);
+    setError('');
+    try {
+      await onRequestResetToken(pin);
       setStep('password');
-      setError('');
       setPin('');
-    } else {
-      setError('PIN incorreto');
+    } catch (err) {
+      setError(err.message || 'PIN incorreto');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -81,6 +83,7 @@ export default function ResetPasswordModal({ open, onClose, onReset }) {
                 placeholder="••••"
                 value={pin}
                 onChange={e => setPin(e.target.value)}
+                disabled={loading}
                 className="mt-1"
                 autoFocus
               />
@@ -91,15 +94,16 @@ export default function ResetPasswordModal({ open, onClose, onReset }) {
                 type="button"
                 variant="outline"
                 onClick={handleClose}
+                disabled={loading}
               >
                 Cancelar
               </Button>
               <Button
                 type="submit"
-                disabled={!pin.trim()}
+                disabled={loading || !pin.trim()}
                 className="bg-primary hover:bg-primary/90"
               >
-                Continuar
+                {loading ? 'Validando...' : 'Continuar'}
               </Button>
             </div>
           </form>

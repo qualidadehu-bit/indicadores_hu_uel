@@ -4,6 +4,10 @@
  */
 
 import { normalizeGestorNivelAcesso, pickNivelAcessoFromGestorRow } from '@/lib/gestorNivelAcesso';
+import { normalizeDashboardScope } from '@/lib/dashboardScope';
+import { normalizeGrupoComissao } from '@/lib/comissaoGrupos';
+import { normalizeEntityType } from '@/lib/entityType';
+import { parseLocaleNumber } from '@/lib/numberParsing';
 
 /** @param {unknown} v */
 export function normalizeSheetId(v) {
@@ -27,9 +31,7 @@ export function normalizeSheetInt(v) {
  * @returns {number | null}
  */
 export function normalizeSheetNumber(v) {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  return parseLocaleNumber(v);
 }
 
 /** @param {unknown} v */
@@ -53,6 +55,9 @@ export function normalizeLancamento(row) {
     indicador_id: normalizeSheetId(row.indicador_id),
     setor_id: normalizeSheetId(row.setor_id),
     modulo_id: normalizeSheetId(row.modulo_id),
+    entity_type: normalizeEntityType(row.entity_type),
+    dashboard_scope: normalizeDashboardScope(row.dashboard_scope),
+    grupo_scope: normalizeGrupoComissao(row.grupo_scope),
     mes: mes ?? row.mes,
     ano: ano ?? row.ano,
     valor: valorN !== null ? valorN : row.valor,
@@ -69,6 +74,9 @@ export function normalizeMeta(row) {
     id: normalizeSheetId(row.id),
     indicador_id: normalizeSheetId(row.indicador_id),
     setor_id: normalizeSheetId(row.setor_id),
+    entity_type: normalizeEntityType(row.entity_type),
+    dashboard_scope: normalizeDashboardScope(row.dashboard_scope),
+    grupo_scope: normalizeGrupoComissao(row.grupo_scope),
     ano: ano ?? row.ano,
     valor: valorN !== null ? valorN : row.valor,
   };
@@ -83,13 +91,18 @@ export function normalizeIndicador(row) {
     ...row,
     id: normalizeSheetId(row.id),
     modulo_id: normalizeSheetId(row.modulo_id),
+    entity_type: normalizeEntityType(row.entity_type),
     modulo_nome: row.modulo_nome != null && String(row.modulo_nome).trim() !== '' ? String(row.modulo_nome).trim() : row.modulo_nome,
+    dashboard_scope: normalizeDashboardScope(row.dashboard_scope),
+    grupo_scope: normalizeGrupoComissao(row.grupo_scope),
     tipo_direcao_meta: tipo != null && String(tipo).trim() !== '' ? String(tipo).trim() : tipo,
     nome: row.nome != null ? String(row.nome).trim() : row.nome,
     label: row.label != null ? String(row.label).trim() : row.label,
     unidade: row.unidade != null ? String(row.unidade).trim() : row.unidade,
     grupo_radar: row.grupo_radar != null ? String(row.grupo_radar).trim() : row.grupo_radar,
     grupo_serie: row.grupo_serie != null ? String(row.grupo_serie).trim() : row.grupo_serie,
+    grupo_visual: row.grupo_visual != null ? String(row.grupo_visual).trim() : row.grupo_visual,
+    nome_serie: row.nome_serie != null ? String(row.nome_serie).trim() : row.nome_serie,
     tipo_grafico:
       row.tipo_grafico != null && String(row.tipo_grafico).trim() !== ''
         ? String(row.tipo_grafico).trim().toLowerCase()
@@ -123,7 +136,9 @@ export function normalizeModulo(row) {
   return {
     ...row,
     id: normalizeSheetId(row.id),
+    entity_type: normalizeEntityType(row.entity_type),
     nome: row.nome != null ? String(row.nome).trim() : row.nome,
+    dashboard_scope: normalizeDashboardScope(row.dashboard_scope),
     ordem: ordem ?? row.ordem ?? 0,
     pizza_fatias:
       row.pizza_fatias != null && String(row.pizza_fatias).trim() !== ''
@@ -151,6 +166,7 @@ export function normalizeSetor(row) {
   return {
     ...row,
     id: normalizeSheetId(row.id),
+    entity_type: normalizeEntityType(row.entity_type),
     nome: row.nome != null ? String(row.nome).trim() : row.nome,
     divisao: row.divisao != null ? String(row.divisao).trim() : row.divisao,
     indicador_ids: indicadorIds,

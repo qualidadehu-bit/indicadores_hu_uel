@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   RadarChart,
   Radar,
@@ -31,7 +32,7 @@ export function getRadarQualidadeScoreColor(valor, faixas) {
 export function RadarQualidadeLegendPanel({ faixas }) {
   const legend = faixas?.length ? withFaixaRanges(faixas) : withFaixaRanges(DEFAULT_RADAR_FAIXAS);
   return (
-    <div className="lg:w-44 w-full flex flex-col gap-3 border border-gray-100 rounded-xl p-4 bg-gray-50/50 flex-shrink-0">
+    <div className="w-full flex flex-col gap-3 border border-gray-100 rounded-xl p-4 bg-gray-50/50 min-w-0">
       {legend.map((l) => (
         <div key={`${l.label}-${l.min}-${l.max}`} className="flex items-center gap-3">
           <div
@@ -40,7 +41,7 @@ export function RadarQualidadeLegendPanel({ faixas }) {
           >
             {l.emoji}
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-bold leading-tight" style={{ color: l.cor }}>{l.label}</p>
             <p className="text-xs text-muted-foreground">{l.range}</p>
           </div>
@@ -50,13 +51,15 @@ export function RadarQualidadeLegendPanel({ faixas }) {
   );
 }
 
-export function RadarQualidadeAngleTick({ x, y, payload, textAnchor }) {
+export function RadarQualidadeAngleTick({ x, y, cx, cy, payload, textAnchor }) {
+  if (x == null || y == null) return null;
   const words = (payload?.value || '').split(' ');
   const lineHeight = 14;
+  const maxCharsPerLine = 16;
   const lines = [];
   let current = '';
   for (const word of words) {
-    if (`${current} ${word}`.trim().length > 18) {
+    if (`${current} ${word}`.trim().length > maxCharsPerLine) {
       if (current) lines.push(current);
       current = word;
     } else {
@@ -65,19 +68,38 @@ export function RadarQualidadeAngleTick({ x, y, payload, textAnchor }) {
   }
   if (current) lines.push(current);
 
-  const startY = y - ((lines.length - 1) * lineHeight) / 2;
+  const px = typeof payload?.x === 'number' ? payload.x : x;
+  const py = typeof payload?.y === 'number' ? payload.y : y;
+  const dx = cx == null ? 0 : px - cx;
+  const dy = cy == null ? 0 : py - cy;
+  const len = Math.hypot(dx, dy) || 1;
+  const radialOffset = 16;
+  const textX = px + (dx / len) * radialOffset;
+  const textY = py + (dy / len) * radialOffset;
+  const isUpperHalf = dy < -6;
+  const isLowerHalf = dy > 6;
+  const startY = isUpperHalf
+    ? textY - (lines.length - 1) * lineHeight
+    : isLowerHalf
+      ? textY
+      : textY - ((lines.length - 1) * lineHeight) / 2;
+  const resolvedAnchor =
+    textAnchor || (dx > 8 ? 'start' : dx < -8 ? 'end' : 'middle');
 
   return (
     <g>
       {lines.map((line, i) => (
         <text
           key={i}
-          x={x}
+          x={textX}
           y={startY + i * lineHeight}
-          textAnchor={textAnchor || 'middle'}
+          textAnchor={resolvedAnchor}
           fontSize={11}
           fill="#374151"
           fontWeight="500"
+          stroke="#ffffff"
+          strokeWidth={2}
+          paintOrder="stroke"
         >
           {line}
         </text>
@@ -111,7 +133,15 @@ export function isRadarPercentQualidadeScale(members) {
   });
 }
 
-const defaultMargin = { top: 30, right: 60, bottom: 30, left: 60 };
+const defaultMargin = { top: 58, right: 132, bottom: 58, left: 132 };
+const compactRowMargin = { top: 52, right: 110, bottom: 52, left: 110 };
+const stackMargin = { top: 46, right: 84, bottom: 46, left: 84 };
+const wideMargin = { top: 62, right: 146, bottom: 62, left: 146 };
+const highlightMargin = { top: 66, right: 156, bottom: 66, left: 156 };
+const RADAR_STACK_THRESHOLD_PX = 920;
+const RADAR_COMPACT_ROW_THRESHOLD_PX = 1240;
+const RADAR_WIDE_THRESHOLD_PX = 1520;
+const RADAR_HIGHLIGHT_THRESHOLD_PX = 1160;
 
 export function RadarQualidadeChartWithLegend({
   radarData,
@@ -119,15 +149,95 @@ export function RadarQualidadeChartWithLegend({
   height = 360,
   outerRadius = '65%',
   margin = defaultMargin,
-  className = 'flex flex-col lg:flex-row items-center gap-4',
+  className = '',
+  highlight = false,
 }) {
   const faixasEfetivas = faixas?.length ? faixas : withFaixaRanges(DEFAULT_RADAR_FAIXAS);
+  const containerRef = useRef(null);
+  const [containerWidth, setContainerWidth] = useState(null);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return undefined;
+
+    const observer = new ResizeObserver((entries) => {
+      const width = entries?.[0]?.contentRect?.width;
+      if (!width) return;
+      setContainerWidth(Math.round(width));
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const isStacked = containerWidth != null ? containerWidth < RADAR_STACK_THRESHOLD_PX : false;
+  const isCompactRow =
+    containerWidth != null &&
+    containerWidth >= RADAR_STACK_THRESHOLD_PX &&
+    containerWidth < RADAR_COMPACT_ROW_THRESHOLD_PX;
+  const isWideRow = containerWidth != null && containerWidth >= RADAR_WIDE_THRESHOLD_PX;
+  const isHighlight = highlight && (containerWidth == null || containerWidth >= RADAR_HIGHLIGHT_THRESHOLD_PX);
+  const chartMargin = isStacked
+    ? stackMargin
+    : isHighlight
+      ? highlightMargin
+      : isWideRow
+        ? wideMargin
+        : isCompactRow
+          ? compactRowMargin
+          : margin;
+  const chartOuterRadius = isStacked
+    ? '55%'
+    : isHighlight
+      ? '74%'
+      : isWideRow
+        ? '68%'
+        : isCompactRow
+          ? '60%'
+          : outerRadius;
+  const chartHeight = isStacked
+    ? Math.max(height, 372)
+    : isHighlight
+      ? Math.max(height, 470)
+      : isWideRow
+        ? Math.max(height, 430)
+        : isCompactRow
+          ? Math.max(height, 390)
+          : Math.max(height, 410);
+  const legendWidthClass = isCompactRow
+    ? 'w-[176px] min-w-[176px]'
+    : isHighlight
+      ? 'w-[224px] min-w-[224px]'
+      : 'w-[200px] min-w-[200px]';
+  const chartHostClass = isStacked
+    ? 'min-h-[320px]'
+    : isHighlight
+      ? 'flex-1 min-w-[420px] min-h-[440px]'
+      : isCompactRow
+        ? 'flex-1 min-w-[320px] min-h-[350px]'
+        : isWideRow
+          ? 'flex-1 min-w-[380px] min-h-[400px]'
+          : 'flex-1 min-w-[340px] min-h-[360px]';
+  const containerClasses = [
+    'flex w-full',
+    isHighlight ? 'gap-6' : 'gap-4',
+    isStacked ? 'flex-col items-stretch' : 'flex-row items-start',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <div className={className}>
-      <div className="flex-1 w-full min-h-[200px]">
-        <ResponsiveContainer width="100%" height={height}>
-          <RadarChart data={radarData} cx="50%" cy="50%" outerRadius={outerRadius} margin={margin}>
+    <div ref={containerRef} className={containerClasses}>
+      <div className={`w-full min-w-0 ${chartHostClass}`}>
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <RadarChart
+            data={radarData}
+            cx="50%"
+            cy="50%"
+            outerRadius={chartOuterRadius}
+            margin={chartMargin}
+          >
             <PolarGrid stroke="#e5e7eb" />
             <PolarAngleAxis dataKey="subject" tick={RadarQualidadeAngleTick} />
             <PolarRadiusAxis
@@ -149,7 +259,9 @@ export function RadarQualidadeChartWithLegend({
           </RadarChart>
         </ResponsiveContainer>
       </div>
-      <RadarQualidadeLegendPanel faixas={faixasEfetivas} />
+      <div className={isStacked ? 'w-full min-w-0' : `${legendWidthClass} flex-shrink-0`}>
+        <RadarQualidadeLegendPanel faixas={faixasEfetivas} />
+      </div>
     </div>
   );
 }

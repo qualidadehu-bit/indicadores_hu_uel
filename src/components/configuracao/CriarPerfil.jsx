@@ -16,6 +16,15 @@ import {
   labelGestorNivelAcesso,
   normalizeGestorNivelAcesso,
 } from '@/lib/gestorNivelAcesso';
+import { DASHBOARD_SCOPE_OPTIONS } from '@/lib/dashboardScope';
+import { COMISSAO_GRUPOS_DEFAULT, labelGrupoComissao, normalizeGrupoComissao } from '@/lib/comissaoGrupos';
+import { ENTITY_TYPE_CLINICA, ENTITY_TYPE_COMISSAO, ENTITY_TYPE_SETOR, normalizeEntityType } from '@/lib/entityType';
+import {
+  ACAO_LANCAR_DADOS,
+  ACOES_ESCOPO_OPTIONS,
+  parseScopePermissions,
+  serializeScopePermissions,
+} from '@/lib/scopePermissions';
 
 /** @param {unknown} raw */
 function parseUnidadesIds(raw) {
@@ -27,21 +36,49 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
   const [login, setLogin] = useState('');
   const [senha, setSenha] = useState('');
   const [divisoesSel, setDivisoesSel] = useState([]);
-  const [unidadesSel, setUnidadesSel] = useState([]);
+  const [unidadesSetorSel, setUnidadesSetorSel] = useState([]);
+  const [unidadesComissaoSel, setUnidadesComissaoSel] = useState([]);
+  const [unidadesClinicaSel, setUnidadesClinicaSel] = useState([]);
   const [nivelAcesso, setNivelAcesso] = useState(GESTOR_NIVEL_COMPLETO);
+  const [permissoesEscopo, setPermissoesEscopo] = useState([]);
 
   useEffect(() => {
     if (!open) return;
     setLogin(String(gestor?.login || gestor?.nome || '').trim());
     setSenha('');
     setDivisoesSel(parseGestorDivisoesList(gestor?.divisoes));
-    setUnidadesSel(parseUnidadesIds(gestor?.unidades));
+    setUnidadesSetorSel(parseUnidadesIds(gestor?.unidades_setor || gestor?.unidades));
+    setUnidadesComissaoSel(parseUnidadesIds(gestor?.unidades_comissao));
+    setUnidadesClinicaSel(parseUnidadesIds(gestor?.unidades_clinica));
     setNivelAcesso(normalizeGestorNivelAcesso(gestor?.nivel_acesso));
-  }, [open, gestor?.id, gestor?.login, gestor?.nome, gestor?.unidades, gestor?.divisoes, gestor?.nivel_acesso]);
+    setPermissoesEscopo(parseScopePermissions(gestor?.permissoes_escopo));
+  }, [open, gestor?.id, gestor?.login, gestor?.nome, gestor?.unidades, gestor?.divisoes, gestor?.nivel_acesso, gestor?.permissoes_escopo, gestor?.unidades_clinica]);
+
+  const addPermissao = () => {
+    setPermissoesEscopo((prev) => [...prev, { acao: ACAO_LANCAR_DADOS, dashboard: 'assistencial', grupo: '' }]);
+  };
+  const removePermissao = (idx) => {
+    setPermissoesEscopo((prev) => prev.filter((_, i) => i !== idx));
+  };
+  const patchPermissao = (idx, patch) => {
+    setPermissoesEscopo((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  };
 
   const setoresOrdenados = useMemo(
     () => [...setores].sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')),
     [setores]
+  );
+  const setoresTipoSetor = useMemo(
+    () => setoresOrdenados.filter((s) => normalizeEntityType(s.entity_type) === ENTITY_TYPE_SETOR),
+    [setoresOrdenados]
+  );
+  const setoresTipoComissao = useMemo(
+    () => setoresOrdenados.filter((s) => normalizeEntityType(s.entity_type) === ENTITY_TYPE_COMISSAO),
+    [setoresOrdenados]
+  );
+  const setoresTipoClinica = useMemo(
+    () => setoresOrdenados.filter((s) => normalizeEntityType(s.entity_type) === ENTITY_TYPE_CLINICA),
+    [setoresOrdenados]
   );
 
   const divisoesOpcoes = useMemo(() => {
@@ -50,15 +87,15 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
   }, [setoresOrdenados]);
 
   const setoresParaUnidades = useMemo(() => {
-    if (!divisoesSel.length) return setoresOrdenados;
+    if (!divisoesSel.length) return setoresTipoSetor;
     const allow = new Set(divisoesSel.map((d) => String(d).trim()));
-    return setoresOrdenados.filter((s) => allow.has(String(s.divisao || '').trim()));
-  }, [setoresOrdenados, divisoesSel]);
+    return setoresTipoSetor.filter((s) => allow.has(String(s.divisao || '').trim()));
+  }, [setoresTipoSetor, divisoesSel]);
 
   useEffect(() => {
     if (!open || !divisoesSel.length) return;
     const valid = new Set(setoresParaUnidades.map((s) => String(s.id)));
-    setUnidadesSel((prev) => prev.filter((id) => valid.has(String(id))));
+    setUnidadesSetorSel((prev) => prev.filter((id) => valid.has(String(id))));
   }, [open, divisoesSel, setoresParaUnidades]);
 
   const toggleDivisao = (nome) => {
@@ -66,9 +103,18 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
     setDivisoesSel((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]));
   };
 
-  const toggleUnidade = (setorId) => {
+  const toggleUnidadeSetor = (setorId) => {
     const sid = String(setorId);
-    setUnidadesSel((prev) => (prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]));
+    setUnidadesSetorSel((prev) => (prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]));
+  };
+
+  const toggleUnidadeComissao = (setorId) => {
+    const sid = String(setorId);
+    setUnidadesComissaoSel((prev) => (prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]));
+  };
+  const toggleUnidadeClinica = (setorId) => {
+    const sid = String(setorId);
+    setUnidadesClinicaSel((prev) => (prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]));
   };
 
   const handleOpenChange = (v) => {
@@ -76,15 +122,19 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
   };
 
   const isEdit = Boolean(gestor?.id);
-  const temEscopo = divisoesSel.length > 0 || unidadesSel.length > 0;
+  const temEscopo =
+    divisoesSel.length > 0 ||
+    unidadesSetorSel.length > 0 ||
+    unidadesComissaoSel.length > 0 ||
+    unidadesClinicaSel.length > 0;
   const canSubmit =
     login.trim().length > 0 && temEscopo && (!isEdit ? senha.trim().length > 0 : true);
 
   const handleSubmit = () => {
     let divisoesArr = [...divisoesSel];
-    if (!divisoesArr.length && unidadesSel.length) {
+    if (!divisoesArr.length && unidadesSetorSel.length) {
       const d = new Set();
-      unidadesSel.forEach((id) => {
+      unidadesSetorSel.forEach((id) => {
         const s = setores.find((x) => String(x.id) === String(id));
         const div = s && String(s.divisao || '').trim();
         if (div) d.add(div);
@@ -92,10 +142,23 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
       divisoesArr = [...d];
     }
     const divisoes = divisoesArr.join('|');
-    const unidades = unidadesSel.join('|');
+    const unidades_setor = unidadesSetorSel.join('|');
+    const unidades_comissao = unidadesComissaoSel.join('|');
+    const unidades_clinica = unidadesClinicaSel.join('|');
+    const unidades = [...new Set([...unidadesSetorSel, ...unidadesComissaoSel, ...unidadesClinicaSel])].join('|');
     const nivel = normalizeGestorNivelAcesso(nivelAcesso);
+    const permissoes_escopo = serializeScopePermissions(permissoesEscopo);
     if (isEdit) {
-      const data = { login: login.trim(), unidades, divisoes, nivel_acesso: nivel };
+      const data = {
+        login: login.trim(),
+        unidades,
+        unidades_setor,
+        unidades_comissao,
+        unidades_clinica,
+        divisoes,
+        nivel_acesso: nivel,
+        permissoes_escopo,
+      };
       if (senha.trim()) data.senha = senha.trim();
       onSave(data);
     } else {
@@ -103,9 +166,13 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
         login: login.trim(),
         senha: senha.trim(),
         unidades,
+        unidades_setor,
+        unidades_comissao,
+        unidades_clinica,
         divisoes,
         ativo: true,
         nivel_acesso: nivel,
+        permissoes_escopo,
       });
     }
   };
@@ -133,6 +200,37 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
               placeholder="Ex: maria.silva"
               className="mt-1"
             />
+          </div>
+          <div>
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Clínicas (opcional — refina o acesso de práticas médicas)
+            </Label>
+            <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-border p-2 space-y-2">
+              {setoresTipoClinica.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Cadastre clínicas na gestão de práticas médicas para listar aqui.
+                </p>
+              ) : (
+                setoresTipoClinica.map((s) => {
+                  const sid = String(s.id);
+                  const checked = unidadesClinicaSel.includes(sid);
+                  return (
+                    <label
+                      key={sid}
+                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/50 rounded px-1 py-0.5"
+                    >
+                      <Checkbox checked={checked} onCheckedChange={() => toggleUnidadeClinica(sid)} />
+                      <span className="flex-1">
+                        <span className="font-medium">{s.nome}</span>
+                        {s.divisao ? (
+                          <span className="text-muted-foreground text-xs ml-1">({s.divisao})</span>
+                        ) : null}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
           </div>
           <div>
             <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -196,8 +294,79 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
             </RadioGroup>
           </div>
           <div>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Permissões por escopo
+              </Label>
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addPermissao}>
+                <Plus className="w-3 h-3 mr-1" />
+                Adicionar regra
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1 mb-2">
+              Se não houver regras, mantém comportamento legado (lançamento liberado no âmbito do perfil). Com regras,
+              o membro só lança no escopo permitido.
+            </p>
+            {permissoesEscopo.length === 0 ? (
+              <p className="text-xs text-muted-foreground rounded-md border border-dashed p-2">
+                Nenhuma regra cadastrada.
+              </p>
+            ) : (
+              <div className="space-y-2 rounded-md border p-2 max-h-48 overflow-y-auto">
+                {permissoesEscopo.map((r, idx) => (
+                  <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end border rounded-md p-2">
+                    <div className="md:col-span-4">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Ação</Label>
+                      <Input
+                        value={String(r.acao || ACAO_LANCAR_DADOS)}
+                        onChange={(e) => patchPermissao(idx, { acao: e.target.value })}
+                        list={`acoes-escopo-${idx}`}
+                        className="h-8 text-xs"
+                      />
+                      <datalist id={`acoes-escopo-${idx}`}>
+                        {ACOES_ESCOPO_OPTIONS.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+                      </datalist>
+                    </div>
+                    <div className="md:col-span-4">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Dashboard</Label>
+                      <Input
+                        value={String(r.dashboard || 'assistencial')}
+                        onChange={(e) => patchPermissao(idx, { dashboard: e.target.value })}
+                        list={`dash-escopo-${idx}`}
+                        className="h-8 text-xs"
+                      />
+                      <datalist id={`dash-escopo-${idx}`}>
+                        {DASHBOARD_SCOPE_OPTIONS.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+                        <option value="*">Todos</option>
+                      </datalist>
+                    </div>
+                    <div className="md:col-span-3">
+                      <Label className="text-[10px] uppercase text-muted-foreground">Grupo (opcional)</Label>
+                      <Input
+                        value={String(r.grupo || '')}
+                        onChange={(e) => patchPermissao(idx, { grupo: normalizeGrupoComissao(e.target.value) })}
+                        list={`grupo-escopo-${idx}`}
+                        className="h-8 text-xs"
+                        placeholder="comissao_obitos ou *"
+                      />
+                      <datalist id={`grupo-escopo-${idx}`}>
+                        {COMISSAO_GRUPOS_DEFAULT.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+                        <option value="*">Todos</option>
+                      </datalist>
+                    </div>
+                    <div className="md:col-span-1 flex justify-end">
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removePermissao(idx)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
             <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Setores (opcional — refina o acesso)
+              Setores (opcional — refina o acesso de setores)
             </Label>
             <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-border p-2 space-y-2">
               {setoresParaUnidades.length === 0 ? (
@@ -209,13 +378,42 @@ function GestorModal({ open, gestor, setores, onSave, onCancel }) {
               ) : (
                 setoresParaUnidades.map((s) => {
                   const sid = String(s.id);
-                  const checked = unidadesSel.includes(sid);
+                  const checked = unidadesSetorSel.includes(sid);
                   return (
                     <label
                       key={sid}
                       className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/50 rounded px-1 py-0.5"
                     >
-                      <Checkbox checked={checked} onCheckedChange={() => toggleUnidade(sid)} />
+                      <Checkbox checked={checked} onCheckedChange={() => toggleUnidadeSetor(sid)} />
+                      <span className="flex-1">
+                        <span className="font-medium">{s.nome}</span>
+                        {s.divisao ? (
+                          <span className="text-muted-foreground text-xs ml-1">({s.divisao})</span>
+                        ) : null}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Comissões (opcional — refina o acesso de comissões)
+            </Label>
+            <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-border p-2 space-y-2">
+              {setoresTipoComissao.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Cadastre comissões na configuração para listar aqui.</p>
+              ) : (
+                setoresTipoComissao.map((s) => {
+                  const sid = String(s.id);
+                  const checked = unidadesComissaoSel.includes(sid);
+                  return (
+                    <label
+                      key={sid}
+                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-secondary/50 rounded px-1 py-0.5"
+                    >
+                      <Checkbox checked={checked} onCheckedChange={() => toggleUnidadeComissao(sid)} />
                       <span className="flex-1">
                         <span className="font-medium">{s.nome}</span>
                         {s.divisao ? (
@@ -252,10 +450,22 @@ export default function CriarPerfil() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGestor, setEditingGestor] = useState(null);
 
-  const { data: setores = [] } = useQuery({
-    queryKey: ['setores'],
-    queryFn: () => api.entities.Setor.list(),
+  const { data: setoresSetor = [] } = useQuery({
+    queryKey: ['setores', ENTITY_TYPE_SETOR],
+    queryFn: () => api.entities.Setor.filter({ entity_type: ENTITY_TYPE_SETOR }),
   });
+  const { data: setoresComissao = [] } = useQuery({
+    queryKey: ['setores', ENTITY_TYPE_COMISSAO],
+    queryFn: () => api.entities.Setor.filter({ entity_type: ENTITY_TYPE_COMISSAO }),
+  });
+  const { data: setoresClinica = [] } = useQuery({
+    queryKey: ['setores', ENTITY_TYPE_CLINICA],
+    queryFn: () => api.entities.Setor.filter({ entity_type: ENTITY_TYPE_CLINICA }),
+  });
+  const setores = useMemo(
+    () => [...setoresSetor, ...setoresComissao, ...setoresClinica],
+    [setoresSetor, setoresComissao, setoresClinica]
+  );
 
   const { data: gestores = [] } = useQuery({
     queryKey: ['gestores'],
@@ -269,10 +479,20 @@ export default function CriarPerfil() {
     if (!ids.length) return '—';
     return ids.map(nomeSetor).join(', ');
   };
+  const formatUnidadesSetor = (raw) => formatUnidades(raw);
+  const formatUnidadesComissao = (raw) => formatUnidades(raw);
+  const formatUnidadesClinica = (raw) => formatUnidades(raw);
 
   const formatDivisoes = (raw) => {
     const list = parseGestorDivisoesList(raw);
     return list.length ? list.join(', ') : '—';
+  };
+  const formatPermissoesEscopo = (raw) => {
+    const list = parseScopePermissions(raw);
+    if (!list.length) return '—';
+    return list
+      .map((r) => `${r.acao}@${r.dashboard}${r.grupo ? `/${labelGrupoComissao(r.grupo)}` : ''}`)
+      .join(' · ');
   };
 
   const createGestor = useMutation({
@@ -371,10 +591,19 @@ export default function CriarPerfil() {
                   <span className="font-medium text-foreground/80">Divisões:</span> {formatDivisoes(g.divisoes)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1 break-words">
-                  <span className="font-medium text-foreground/80">Setores:</span> {formatUnidades(g.unidades)}
+                  <span className="font-medium text-foreground/80">Setores:</span> {formatUnidadesSetor(g.unidades_setor || g.unidades)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 break-words">
+                  <span className="font-medium text-foreground/80">Comissões:</span> {formatUnidadesComissao(g.unidades_comissao)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 break-words">
+                  <span className="font-medium text-foreground/80">Clínicas:</span> {formatUnidadesClinica(g.unidades_clinica)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1 break-words">
                   <span className="font-medium text-foreground/80">Nível:</span> {labelGestorNivelAcesso(g.nivel_acesso)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 break-words">
+                  <span className="font-medium text-foreground/80">Permissões escopo:</span> {formatPermissoesEscopo(g.permissoes_escopo)}
                 </p>
                 {g.ativo === false || g.ativo === 'FALSE' ? (
                   <p className="text-xs text-red-600 font-medium mt-1">Inativo</p>

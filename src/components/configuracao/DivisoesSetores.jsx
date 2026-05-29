@@ -14,9 +14,10 @@ import {
   serializeSetorIndicadorIdsFromSelection,
 } from '@/lib/indicadorDivisao';
 import { normalizeSheetId } from '@/lib/sheetsEntityNormalize';
+import { ENTITY_TYPE_CLINICA, ENTITY_TYPE_COMISSAO, ENTITY_TYPE_SETOR, normalizeEntityType } from '@/lib/entityType';
 
 // ---- Modal: criar / editar setor (nome + indicadores permitidos) ----
-function SetorModal({ open, divisaoNome, setor, indicadores, onSave, onCancel, isSaving }) {
+function SetorModal({ open, divisaoNome, setor, indicadores, onSave, onCancel, isSaving, entityLabel, entityLabelLower }) {
   const { toast } = useToast();
   const [nome, setNome] = useState('');
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -77,19 +78,19 @@ function SetorModal({ open, divisaoNome, setor, indicadores, onSave, onCancel, i
     <Dialog open={open} onOpenChange={(o) => !o && !isSaving && onCancel()}>
       <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="font-jakarta text-lg">{setor ? 'Editar setor' : 'Novo setor'}</DialogTitle>
+          <DialogTitle className="font-jakarta text-lg">{setor ? `Editar ${entityLabel.toLowerCase()}` : `Novo ${entityLabel.toLowerCase()}`}</DialogTitle>
           <p className="text-xs text-muted-foreground">Divisão: {divisaoNome}</p>
         </DialogHeader>
         <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-1">
           <div>
-            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nome do setor</Label>
-            <Input value={nome} onChange={(e) => setNome(e.target.value)} className="mt-1 h-9" placeholder="Ex: Comissão de óbitos" />
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nome do {entityLabel.toLowerCase()}</Label>
+            <Input value={nome} onChange={(e) => setNome(e.target.value)} className="mt-1 h-9" placeholder={`Ex: ${entityLabel === 'Comissão' ? 'Comissão de óbitos' : 'Centro Cirúrgico'}`} />
           </div>
           <div>
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Indicadores deste setor
-              </Label>
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {`Indicadores d${entityLabelLower === 'clínica' ? 'a' : 'o'} ${entityLabelLower}`}
+            </Label>
               <div className="flex gap-1">
                 <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={selectAll}>
                   Marcar todos
@@ -100,7 +101,7 @@ function SetorModal({ open, divisaoNome, setor, indicadores, onSave, onCancel, i
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground mt-1 mb-2">
-              Lista branca opcional. Com todos marcados (ou campo vazio na planilha), o setor usa todos os indicadores já permitidos pela divisão. Caso contrário, só os marcados aparecem no dashboard, lançamento, etc.
+              Lista branca opcional. Com todos marcados (ou campo vazio na planilha), {`o(a) ${entityLabelLower}`} usa todos os indicadores já permitidos pela divisão. Caso contrário, só os marcados aparecem no dashboard, lançamento, etc.
             </p>
             {eligible.length === 0 ? (
               <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-2">
@@ -192,28 +193,34 @@ function DivisaoModal({ open, nome: initialNome, onSave, onCancel }) {
   );
 }
 
-export default function DivisoesSetores() {
+export default function DivisoesSetores({ entityType = ENTITY_TYPE_SETOR, title }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const domainType = normalizeEntityType(entityType);
+  const isComissao = domainType === ENTITY_TYPE_COMISSAO;
+  const isClinica = domainType === ENTITY_TYPE_CLINICA;
+  const entityLabel = isClinica ? 'Clínica' : (isComissao ? 'Comissão' : 'Setor');
+  const entityLabelPlural = isClinica ? 'Clínicas' : (isComissao ? 'Comissões' : 'Setores');
+  const entityLabelLower = entityLabel.toLowerCase();
 
   const { data: setores = [] } = useQuery({
-    queryKey: ['setores'],
-    queryFn: () => api.entities.Setor.list(),
+    queryKey: ['setores', domainType],
+    queryFn: () => api.entities.Setor.filter({ entity_type: domainType }),
   });
 
   const { data: indicadores = [] } = useQuery({
-    queryKey: ['indicadores'],
-    queryFn: () => api.entities.Indicador.list(),
+    queryKey: ['indicadores', domainType],
+    queryFn: () => api.entities.Indicador.filter({ entity_type: domainType }),
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['setores'] });
 
   const setorCreateMutation = useMutation({
-    /** @param {{ nome: string, divisao: string, ativo: boolean, indicador_ids?: unknown }} data */
+    /** @param {{ nome: string, divisao: string, ativo: boolean, indicador_ids?: unknown, entity_type?: string }} data */
     mutationFn: (data) => api.entities.Setor.create(data),
     onSuccess: () => {
       invalidate();
-      toast({ title: 'Setor criado!' });
+      toast({ title: `${entityLabel} criado(a)!` });
     },
   });
   const setorUpdateMutation = useMutation({
@@ -221,7 +228,7 @@ export default function DivisoesSetores() {
     mutationFn: ({ id, data }) => api.entities.Setor.update(id, data),
     onSuccess: () => {
       invalidate();
-      toast({ title: 'Setor atualizado!' });
+      toast({ title: `${entityLabel} atualizado(a)!` });
     },
   });
   const setorDeleteMutation = useMutation({
@@ -229,7 +236,7 @@ export default function DivisoesSetores() {
     mutationFn: (id) => api.entities.Setor.delete(id),
     onSuccess: () => {
       invalidate();
-      toast({ title: 'Setor removido.' });
+      toast({ title: `${entityLabel} removido(a).` });
     },
   });
 
@@ -272,10 +279,10 @@ export default function DivisoesSetores() {
     if (existing) {
       setorUpdateMutation.mutate({
         id: existing.id,
-        data: { ...existing, nome, divisao: divisaoNome, indicador_ids },
+        data: { ...existing, nome, divisao: divisaoNome, indicador_ids, entity_type: domainType },
       });
     } else {
-      setorCreateMutation.mutate({ nome, divisao: divisaoNome, ativo: true, indicador_ids });
+      setorCreateMutation.mutate({ nome, divisao: divisaoNome, ativo: true, indicador_ids, entity_type: domainType });
     }
     setSetorModal(null);
     setNovaDivisaoNome(null);
@@ -291,7 +298,7 @@ export default function DivisoesSetores() {
       <div className="flex items-center gap-3 mb-4">
         <div className="flex items-center gap-2">
           <LayoutGrid className="w-4 h-4 text-primary" />
-          <span className="font-jakarta font-bold text-base">Divisões e Setores</span>
+          <span className="font-jakarta font-bold text-base">{title || `Divisões e ${entityLabelPlural}`}</span>
         </div>
         <Button
           size="sm"
@@ -318,7 +325,7 @@ export default function DivisoesSetores() {
                 {isEditingDiv ? null : (
                   <div>
                     <p className="text-sm font-bold text-foreground">{divisao}</p>
-                    <p className="text-xs text-muted-foreground">{setoresDaDivisao.length} setor(es)</p>
+                    <p className="text-xs text-muted-foreground">{setoresDaDivisao.length} {entityLabel.toLowerCase()}(s)</p>
                   </div>
                 )}
               </div>
@@ -377,7 +384,7 @@ export default function DivisoesSetores() {
               className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-cyan-500 border-t border-dashed border-cyan-300 hover:bg-cyan-50/50 transition-colors"
             >
               <Plus className="w-3 h-3" />
-              Adicionar Setor
+              Adicionar {entityLabel}
             </button>
           </div>
         );
@@ -389,7 +396,7 @@ export default function DivisoesSetores() {
             <div className="w-3 h-3 rounded-sm bg-indigo-400 flex-shrink-0" />
             <div>
               <p className="text-sm font-bold text-foreground">{novaDivisaoNome}</p>
-              <p className="text-xs text-muted-foreground">0 setor(es) — crie o primeiro setor no modal.</p>
+              <p className="text-xs text-muted-foreground">0 {entityLabel.toLowerCase()}(s) — crie o primeiro no modal.</p>
             </div>
           </div>
         </div>
@@ -407,6 +414,8 @@ export default function DivisoesSetores() {
         divisaoNome={setorModal?.divisao || ''}
         setor={setorModal?.setor}
         indicadores={indicadores}
+        entityLabel={entityLabel}
+        entityLabelLower={entityLabelLower}
         isSaving={savingSetor}
         onCancel={closeSetorModal}
         onSave={onSetorModalSave}

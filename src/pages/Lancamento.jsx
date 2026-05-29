@@ -16,10 +16,39 @@ import { lancamentoModuloPizzaFatias, duplicatePizzaFatiaIndicadorIds } from '@/
 import { normalizeSheetId } from '@/lib/sheetsEntityNormalize';
 import { useAuth } from '@/lib/AuthContext';
 import { getSetoresVisiveisParaUsuario } from '@/lib/gestorSession';
+import { parseLocaleNumber } from '@/lib/numberParsing';
+import {
+  DASHBOARD_SCOPE_LEGACY,
+  getIndicadorDashboardScope,
+  filtrarIndicadoresPorDashboardScope,
+  filtrarModulosPorDashboardScope,
+  normalizeDashboardScope,
+} from '@/lib/dashboardScope';
+import { ACAO_LANCAR_DADOS, canUserPerformScopedAction, getUserScopePermissions } from '@/lib/scopePermissions';
+import { ENTITY_TYPE_CLINICA, ENTITY_TYPE_COMISSAO, ENTITY_TYPE_SETOR, normalizeEntityType } from '@/lib/entityType';
 
 function ordemLancamentoIndicador(ordem) {
   const n = typeof ordem === 'number' && !Number.isNaN(ordem) ? ordem : Number(ordem);
   return Number.isFinite(n) ? n : 0;
+}
+
+const GRUPO_VISUAL_OUTROS = 'Outros';
+
+function nomeGrupoVisualLancamento(indicador) {
+  const nome = String(indicador?.grupo_visual ?? '').trim();
+  return nome || GRUPO_VISUAL_OUTROS;
+}
+
+function compareGrupoVisualLancamento(a, b) {
+  const aIsOutros = String(a).toLocaleLowerCase('pt-BR') === GRUPO_VISUAL_OUTROS.toLocaleLowerCase('pt-BR');
+  const bIsOutros = String(b).toLocaleLowerCase('pt-BR') === GRUPO_VISUAL_OUTROS.toLocaleLowerCase('pt-BR');
+  if (aIsOutros && !bIsOutros) return 1;
+  if (bIsOutros && !aIsOutros) return -1;
+  return String(a).localeCompare(String(b), 'pt-BR', { sensitivity: 'base' });
+}
+
+function grupoOpenKey(moduloId, grupoNome) {
+  return `${String(moduloId)}::${String(grupoNome).toLocaleLowerCase('pt-BR')}`;
 }
 
 /** Chave estável para o mapa `editando` (ids vêm como `unknown` em entidades da planilha). @param {unknown} id */
@@ -32,17 +61,30 @@ function editandoKey(id) {
  * @typedef {{ indicador: Record<string, unknown>; valor: string; nota?: string }} LancamentoUpsertVariables
  */
 
-export default function Lancamento({ ano, mes }) {
+export default function Lancamento({ ano, mes, entityType = ENTITY_TYPE_SETOR, dashboardScope = DASHBOARD_SCOPE_LEGACY }) {
   const anoAtual = ano || new Date().getFullYear();
   const mesAtual = mes || new Date().getMonth() + 1;
+  const domainType = normalizeEntityType(entityType);
+  const isComissao = domainType === ENTITY_TYPE_COMISSAO;
+  const isClinica = domainType === ENTITY_TYPE_CLINICA;
   const [setorId, setSetorId] = useState('');
   const [openModulos, setOpenModulos] = useState({});
+  const [openGrupos, setOpenGrupos] = useState({});
   const [editando, setEditando] = useState({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const dashboardScopeAtivo = normalizeDashboardScope(dashboardScope);
+  const entityLabelSingular = isClinica ? 'clínica' : isComissao ? 'comissão' : 'setor';
+  const entityArticleSingular = isClinica || isComissao ? 'uma' : 'um';
+  const entityScopeDescription = isClinica
+    ? 'Fluxo exclusivo de práticas médicas'
+    : (isComissao ? 'Fluxo exclusivo de comissões' : 'Fluxo exclusivo de setores hospitalares');
 
-  const { data: setores = [] } = useQuery({ queryKey: ['setores'], queryFn: () => api.entities.Setor.list() });
+  const { data: setores = [] } = useQuery({
+    queryKey: ['setores', domainType],
+    queryFn: () => api.entities.Setor.filter({ entity_type: domainType }),
+  });
   const setoresVis = useMemo(() => getSetoresVisiveisParaUsuario(setores, user), [setores, user]);
 
   useEffect(() => {
@@ -54,22 +96,66 @@ export default function Lancamento({ ano, mes }) {
       setSetorId(setoresVis[0] ? String(setoresVis[0].id) : '');
     }
   }, [setoresVis, setorId]);
-  const { data: modulos = [] } = useQuery({ queryKey: ['modulos'], queryFn: () => api.entities.Modulo.list() });
-  const { data: indicadores = [] } = useQuery({ queryKey: ['indicadores'], queryFn: () => api.entities.Indicador.list() });
-  const { data: metas = [] } = useQuery({ queryKey: ['metas', anoAtual], queryFn: () => api.entities.Meta.filter({ ano: anoAtual }) });
+  const { data: modulos = [] } = useQuery({
+    queryKey: ['modulos', domainType],
+    queryFn: () => api.entities.Modulo.filter({ entity_type: domainType }),
+  });
+  const { data: indicadores = [] } = useQuery({
+    queryKey: ['indicadores', domainType],
+    queryFn: () => api.entities.Indicador.filter({ entity_type: domainType }),
+  });
+  const { data: metas = [] } = useQuery({
+    queryKey: ['metas', domainType, anoAtual],
+    queryFn: () => api.entities.Meta.filter({ ano: anoAtual, entity_type: domainType }),
+  });
+  const modulosById = useMemo(
+    () => new Map(modulos.map((m) => [String(m.id), m])),
+    [modulos]
+  );
+  /** @type {Array<{ id: string|number, nome?: string } & Record<string, unknown>>} */
+  const modulosScoped = useMemo(
+    () => /** @type {Array<{ id: string|number, nome?: string } & Record<string, unknown>>} */ (
+      filtrarModulosPorDashboardScope(modulos, dashboardScopeAtivo)
+    ),
+    [modulos, dashboardScopeAtivo]
+  );
+  const indicadoresScoped = useMemo(
+    () => filtrarIndicadoresPorDashboardScope(indicadores, modulosById, dashboardScopeAtivo),
+    [indicadores, modulosById, dashboardScopeAtivo]
+  );
 
   const setorSelecionado = useMemo(() => setoresVis.find(s => String(s.id) === String(setorId)), [setoresVis, setorId]);
   const divisaoLancamento = setorSelecionado && String(setorSelecionado.divisao || '').trim()
     ? String(setorSelecionado.divisao).trim()
     : null;
   const indicadoresFiltrados = useMemo(() => {
-    const porDiv = filtrarIndicadoresPorDivisao(indicadores, divisaoLancamento);
+    const porDiv = filtrarIndicadoresPorDivisao(indicadoresScoped, divisaoLancamento);
     return filtrarIndicadoresPorSetorWhitelist(porDiv, setorSelecionado);
-  }, [indicadores, divisaoLancamento, setorSelecionado]);
+  }, [indicadoresScoped, divisaoLancamento, setorSelecionado]);
+  const indicadoresPermitidosLancamento = useMemo(
+    () =>
+      indicadoresFiltrados.filter((ind) =>
+        canUserPerformScopedAction(user, ACAO_LANCAR_DADOS, {
+          dashboard: getIndicadorDashboardScope(ind, modulosById.get(String(ind.modulo_id))),
+          grupo: normalizeSheetId(ind.grupo_scope),
+        })
+      ),
+    [indicadoresFiltrados, user, modulosById]
+  );
+  const possuiAlgumaPermissaoLancamento = useMemo(() => {
+    if (!user || String(user.tipo) !== 'gestor') return true;
+    const regras = getUserScopePermissions(user);
+    if (!regras.length) return true;
+    return regras.some((r) => r.acao === ACAO_LANCAR_DADOS || r.acao === 'admin' || r.acao === '*');
+  }, [user]);
+  const qtdIndicadoresBloqueadosPorEscopo = Math.max(
+    0,
+    indicadoresFiltrados.length - indicadoresPermitidosLancamento.length
+  );
 
   const { data: lancamentos = [], isLoading: loadingLanc } = useQuery({
-    queryKey: ['lancamentos', anoAtual, mesAtual, setorId],
-    queryFn: () => api.entities.Lancamento.filter({ ano: anoAtual, mes: mesAtual, setor_id: setorId }),
+    queryKey: ['lancamentos', domainType, anoAtual, mesAtual, setorId],
+    queryFn: () => api.entities.Lancamento.filter({ ano: anoAtual, mes: mesAtual, setor_id: setorId, entity_type: domainType }),
     enabled: !!setorId,
   });
 
@@ -78,15 +164,22 @@ export default function Lancamento({ ano, mes }) {
     mutationFn: async ({ indicador, valor, nota }) => {
       const setor = setoresVis.find(s => String(s.id) === String(setorId));
       const existing = lancamentos.find(l => l.indicador_id === indicador.id);
+      const valorParsed = parseLocaleNumber(valor);
+      if (valorParsed == null) {
+        throw new Error('Valor invalido. Use apenas numeros (ex.: 7,4 ou 1234.56).');
+      }
       const payload = {
         indicador_id: indicador.id,
         indicador_nome: indicador.nome,
         setor_id: setorId,
         setor_nome: setor?.nome || '',
         modulo_id: indicador.modulo_id,
+        entity_type: domainType,
+        dashboard_scope: getIndicadorDashboardScope(indicador, modulosById.get(String(indicador.modulo_id))),
+        grupo_scope: normalizeSheetId(indicador.grupo_scope),
         ano: anoAtual,
         mes: mesAtual,
-        valor: parseFloat(valor),
+        valor: valorParsed,
         nota: nota || '',
       };
       if (existing) {
@@ -99,7 +192,12 @@ export default function Lancamento({ ano, mes }) {
       queryClient.invalidateQueries({ queryKey: ['lancamentos'] });
       toast({ title: 'Salvo com sucesso!', description: 'Lançamento registrado.' });
     },
-    onError: (e) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+    onError: (e) =>
+      toast({
+        title: e.message?.toLowerCase().includes('permissão negada') ? 'Permissão negada' : 'Erro',
+        description: e.message,
+        variant: 'destructive',
+      }),
   };
   const upsertMutation = useMutation(upsertMutationOptions);
 
@@ -116,6 +214,18 @@ export default function Lancamento({ ano, mes }) {
   };
 
   const handleSave = (indicador) => {
+    const permitido = canUserPerformScopedAction(user, ACAO_LANCAR_DADOS, {
+      dashboard: getIndicadorDashboardScope(indicador, modulosById.get(String(indicador.modulo_id))),
+      grupo: normalizeSheetId(indicador.grupo_scope),
+    });
+    if (!permitido) {
+      toast({
+        title: 'Permissão negada',
+        description: 'Seu perfil não pode lançar dados neste dashboard/grupo.',
+        variant: 'destructive',
+      });
+      return;
+    }
     const edit = editando[editandoKey(indicador.id)] || {};
     const lanc = getLancamento(indicador.id);
     const valor = edit.valor !== undefined ? edit.valor : String(lanc?.valor ?? '');
@@ -125,7 +235,7 @@ export default function Lancamento({ ano, mes }) {
   };
 
   const handleSaveAll = async () => {
-    const allInds = indicadoresFiltrados.filter(i => i.ativo !== false);
+    const allInds = indicadoresPermitidosLancamento.filter(i => i.ativo !== false);
     const toSave = allInds.filter(ind => {
       const edit = editando[editandoKey(ind.id)] || {};
       const lanc = getLancamento(ind.id);
@@ -146,18 +256,25 @@ export default function Lancamento({ ano, mes }) {
     toast({ title: '✅ Seus dados foram salvos', description: `${toSave.length} indicador(es) registrado(s) com sucesso.` });
   };
 
-  const toggleModulo = (id) => setOpenModulos(prev => ({ ...prev, [id]: !prev[id] }));
+  const setModuloOpen = (id, nextOpen) => {
+    setOpenModulos((prev) => ({ ...prev, [id]: nextOpen }));
+  };
+  const setGrupoOpen = (moduloId, grupoNome, nextOpen) => {
+    const k = grupoOpenKey(moduloId, grupoNome);
+    setOpenGrupos((prev) => ({ ...prev, [k]: nextOpen }));
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-screen-xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-jakarta font-bold">Lançamento de Dados</h1>
+          <p className="text-xs text-muted-foreground">{entityScopeDescription}</p>
           <p className="text-muted-foreground text-sm mt-0.5">{MESES_COMPLETO[mesAtual - 1]} / {anoAtual}</p>
         </div>
         <Select value={setorId} onValueChange={setSetorId}>
           <SelectTrigger className="w-56">
-            <SelectValue placeholder="Selecione o setor..." />
+            <SelectValue placeholder={`Selecione ${isClinica ? 'a clínica' : isComissao ? 'a comissão' : 'o setor'}...`} />
           </SelectTrigger>
           <SelectContent>
             {setoresVis.map(s => <SelectItem key={String(s.id)} value={String(s.id)}>{String(s.nome ?? '')}</SelectItem>)}
@@ -170,22 +287,35 @@ export default function Lancamento({ ano, mes }) {
           Este setor tem lista restrita de indicadores e nenhum ficou disponível para lançamento. Ajuste em Configuração → Divisões e Setores.
         </div>
       )}
+      {setorId && qtdIndicadoresBloqueadosPorEscopo > 0 ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {qtdIndicadoresBloqueadosPorEscopo} indicador(es) foram ocultados por permissão de escopo do seu perfil.
+        </div>
+      ) : null}
 
       {!setorId ? (
         <Card className="border-dashed">
           <CardContent className="py-16 text-center">
             <Info className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-muted-foreground">Selecione um setor para iniciar o lançamento</p>
+            <p className="text-muted-foreground">
+              Selecione {`${entityArticleSingular} ${entityLabelSingular}`} para iniciar o lançamento
+            </p>
           </CardContent>
         </Card>
       ) : loadingLanc ? (
         <div className="flex justify-center py-16">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
+      ) : !possuiAlgumaPermissaoLancamento ? (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="py-12 text-center text-red-900">
+            Permissão negada: seu perfil não possui a ação <strong>lancar_dados</strong> em nenhum escopo.
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-4">
-          {modulos.map(modulo => {
-            const inds = indicadoresFiltrados.filter(i => i.modulo_id === modulo.id && i.ativo !== false);
+          {modulosScoped.map(modulo => {
+            const inds = indicadoresPermitidosLancamento.filter(i => i.modulo_id === modulo.id && i.ativo !== false);
             if (inds.length === 0) return null;
             const isOpen = openModulos[modulo.id] !== false;
 
@@ -204,9 +334,22 @@ export default function Lancamento({ ano, mes }) {
               idsSomenteFatias && idsSomenteFatias.size > 0
                 ? indsSorted.filter((ind) => !idsSomenteFatias.has(normalizeSheetId(ind.id)))
                 : indsSorted;
+            /** @type {Array<{ nome: string, indicadores: Array<Record<string, unknown>> }>} */
+            const gruposOrdenados = (() => {
+              /** @type {Map<string, Array<Record<string, unknown>>>} */
+              const byGrupo = new Map();
+              for (const ind of indsLinhasNormais) {
+                const grupoNome = nomeGrupoVisualLancamento(ind);
+                if (!byGrupo.has(grupoNome)) byGrupo.set(grupoNome, []);
+                byGrupo.get(grupoNome).push(ind);
+              }
+              return [...byGrupo.entries()]
+                .sort((a, b) => compareGrupoVisualLancamento(a[0], b[0]))
+                .map(([nome, indicadores]) => ({ nome, indicadores }));
+            })();
 
             return (
-              <Collapsible key={modulo.id} open={isOpen} onOpenChange={() => toggleModulo(modulo.id)}>
+              <Collapsible key={modulo.id} open={isOpen} onOpenChange={(nextOpen) => setModuloOpen(modulo.id, nextOpen)}>
                 <Card className="overflow-hidden">
                   <CollapsibleTrigger className="w-full">
                     <CardHeader className="pb-3 bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer">
@@ -231,14 +374,6 @@ export default function Lancamento({ ano, mes }) {
                             {fatiasDupIds.join(', ')}). Os valores serão somados no gráfico; confirme se foi intencional.
                           </div>
                         ) : null}
-                        {/* Header row */}
-                        <div className="hidden md:grid grid-cols-12 gap-3 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b pb-2">
-                          <div className="col-span-4">Indicador</div>
-                          <div className="col-span-2 text-center">Meta</div>
-                          <div className="col-span-2">Unidade</div>
-                          <div className="col-span-2 text-center">Valor</div>
-                          <div className="col-span-1 text-center">Ação</div>
-                        </div>
                         {fatiasList && fatiasList.length > 0 ? (
                           <div className="space-y-3 rounded-lg border border-amber-200/80 bg-amber-50/40 p-3" role="region" aria-label="Pizza — fatias">
                             <p className="text-sm font-semibold text-foreground">Pizza — fatias</p>
@@ -248,7 +383,7 @@ export default function Lancamento({ ano, mes }) {
                             </p>
                             {fatiasList.map((fatia, fi) => {
                               const idFat = normalizeSheetId(fatia.indicador_id);
-                              const indAlvo = indicadoresFiltrados.find((x) => String(x.id) === idFat);
+                              const indAlvo = indicadoresPermitidosLancamento.find((x) => String(x.id) === idFat);
                               const lanc = indAlvo ? getLancamento(indAlvo.id) : undefined;
                               const meta = indAlvo ? getMeta(indAlvo.id) : undefined;
                               const editAtual = indAlvo ? editando[editandoKey(indAlvo.id)] || {} : {};
@@ -326,56 +461,92 @@ export default function Lancamento({ ano, mes }) {
                             })}
                           </div>
                         ) : null}
-                        {indsLinhasNormais.map(ind => {
-                          const lanc = getLancamento(ind.id);
-                          const meta = getMeta(ind.id);
-                          const editAtual = editando[editandoKey(ind.id)] || {};
-                          const valorDisplay = editAtual.valor !== undefined ? editAtual.valor : String(lanc?.valor ?? '');
-                          const notaDisplay = editAtual.nota !== undefined ? editAtual.nota : (lanc?.nota ?? '');
-                          const hasChanges = editAtual.valor !== undefined || editAtual.nota !== undefined;
-
+                        {gruposOrdenados.map((grupo) => {
+                          const grupoKey = grupoOpenKey(modulo.id, grupo.nome);
+                          const grupoOpen = openGrupos[grupoKey] !== false;
                           return (
-                            <div key={String(ind.id)} className="space-y-2">
-                              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center py-2 border-b border-dashed last:border-0">
-                                <div className="md:col-span-4">
-                                  <p className="text-sm font-medium">{String(ind.label || ind.nome || '')}</p>
-                                  <p className="text-xs text-muted-foreground md:hidden">{String(ind.unidade ?? '—')} | Meta: {meta?.valor ?? '—'}</p>
-                                </div>
-                                <div className="hidden md:flex md:col-span-2 justify-center">
-                                  <span className="text-sm font-medium text-muted-foreground">{meta?.valor ?? '—'}</span>
-                                </div>
-                                <div className="hidden md:block md:col-span-2 text-sm text-muted-foreground">{String(ind.unidade ?? '—')}</div>
-                                <div className="md:col-span-2">
-                                  <Input
-                                    type="number"
-                                    step="any"
-                                    value={valorDisplay}
-                                    onChange={e => handleEdit(ind.id, 'valor', e.target.value)}
-                                    placeholder="0"
-                                    className="h-8 text-sm text-center"
-                                  />
-                                </div>
-                                <div className="md:col-span-1 flex justify-center">
-                                  <Button
-                                    size="sm"
-                                    variant={hasChanges ? 'default' : 'outline'}
-                                    className="h-8 px-3"
-                                    disabled={upsertMutation.isPending}
-                                    onClick={() => handleSave(ind)}
-                                  >
-                                    {upsertMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                                  </Button>
-                                </div>
+                            <Collapsible
+                              key={grupoKey}
+                              open={grupoOpen}
+                              onOpenChange={(nextOpen) => setGrupoOpen(modulo.id, grupo.nome, nextOpen)}
+                            >
+                              <div className="rounded-lg border border-border/70 overflow-hidden">
+                                <CollapsibleTrigger className="w-full">
+                                  <div className="flex items-center justify-between px-3 py-2 bg-muted/25 hover:bg-muted/40 transition-colors">
+                                    <p className="text-sm font-semibold flex items-center gap-2">
+                                      {grupoOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                      {grupo.nome}
+                                    </p>
+                                    <Badge variant="secondary" className="text-[11px]">
+                                      {grupo.indicadores.length} indicador(es)
+                                    </Badge>
+                                  </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                  <div className="p-3 space-y-3">
+                                    <div className="hidden md:grid grid-cols-12 gap-3 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b pb-2">
+                                      <div className="col-span-4">Indicador</div>
+                                      <div className="col-span-2 text-center">Meta</div>
+                                      <div className="col-span-2">Unidade</div>
+                                      <div className="col-span-2 text-center">Valor</div>
+                                      <div className="col-span-1 text-center">Ação</div>
+                                    </div>
+                                    {grupo.indicadores.map((ind) => {
+                                      const lanc = getLancamento(ind.id);
+                                      const meta = getMeta(ind.id);
+                                      const editAtual = editando[editandoKey(ind.id)] || {};
+                                      const valorDisplay = editAtual.valor !== undefined ? editAtual.valor : String(lanc?.valor ?? '');
+                                      const notaDisplay = editAtual.nota !== undefined ? editAtual.nota : (lanc?.nota ?? '');
+                                      const hasChanges = editAtual.valor !== undefined || editAtual.nota !== undefined;
+
+                                      return (
+                                        <div key={String(ind.id)} className="space-y-2">
+                                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center py-2 border-b border-dashed last:border-0">
+                                            <div className="md:col-span-4">
+                                              <p className="text-sm font-medium">{String(ind.label || ind.nome || '')}</p>
+                                              <p className="text-xs text-muted-foreground md:hidden">{String(ind.unidade ?? '—')} | Meta: {meta?.valor ?? '—'}</p>
+                                            </div>
+                                            <div className="hidden md:flex md:col-span-2 justify-center">
+                                              <span className="text-sm font-medium text-muted-foreground">{meta?.valor ?? '—'}</span>
+                                            </div>
+                                            <div className="hidden md:block md:col-span-2 text-sm text-muted-foreground">{String(ind.unidade ?? '—')}</div>
+                                            <div className="md:col-span-2">
+                                              <Input
+                                                type="number"
+                                                step="any"
+                                                value={valorDisplay}
+                                                onChange={e => handleEdit(ind.id, 'valor', e.target.value)}
+                                                placeholder="0"
+                                                className="h-8 text-sm text-center"
+                                              />
+                                            </div>
+                                            <div className="md:col-span-1 flex justify-center">
+                                              <Button
+                                                size="sm"
+                                                variant={hasChanges ? 'default' : 'outline'}
+                                                className="h-8 px-3"
+                                                disabled={upsertMutation.isPending}
+                                                onClick={() => handleSave(ind)}
+                                              >
+                                                {upsertMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                              </Button>
+                                            </div>
+                                          </div>
+                                          <div className="md:pl-4">
+                                            <Textarea
+                                              value={notaDisplay}
+                                              onChange={e => handleEdit(ind.id, 'nota', e.target.value)}
+                                              placeholder="Nota/justificativa (opcional)..."
+                                              className="text-xs min-h-0 h-8 resize-none py-1.5"
+                                            />
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </CollapsibleContent>
                               </div>
-                              <div className="md:pl-4">
-                                <Textarea
-                                  value={notaDisplay}
-                                  onChange={e => handleEdit(ind.id, 'nota', e.target.value)}
-                                  placeholder="Nota/justificativa (opcional)..."
-                                  className="text-xs min-h-0 h-8 resize-none py-1.5"
-                                />
-                              </div>
-                            </div>
+                            </Collapsible>
                           );
                         })}
                       </div>
@@ -401,6 +572,11 @@ export default function Lancamento({ ano, mes }) {
           </Button>
         </div>
       )}
+      {setorId && indicadoresFiltrados.length > 0 && indicadoresPermitidosLancamento.length === 0 ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          Permissão negada: seu perfil não possui escopo para lançar dados neste setor/dashboard/grupo.
+        </div>
+      ) : null}
     </div>
   );
 }
