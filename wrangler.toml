@@ -12,3 +12,4 @@ run_worker_first = [ "/api", "/api/ai/*", "/health" ]
 
 # Segredos e URLs sensíveis: use `wrangler secret put` (produção) ou `.dev.vars` (local).
 # Não coloque GAS_WEBAPP_URL nem GAS_SECRET em [vars] — eles ficam fora do repositório.
+# Configure CORS_ALLOWED_ORIGINS no ambiente de produção (secret/var) para cross-origin explícito.

@@ -117,15 +117,40 @@ function normalizeSecret(value: unknown): string {
   return s;
 }
 
-function buildCorsHeaders(request: Request, env: Env): Record<string, string> | null {
-  const origin = toTrimmedString(request.headers.get('Origin'));
-  if (!origin) return { ...BASE_CORS_HEADERS };
-  const allowed = new Set(
-    toTrimmedString(env.CORS_ALLOWED_ORIGINS)
-      .split(',')
-      .map((x) => x.trim())
+function normalizeOriginValue(value: unknown): string {
+  const raw = toTrimmedString(value).replace(/\/+$/, '');
+  if (!raw) return '';
+  try {
+    return new URL(raw).origin.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function parseAllowedOrigins(raw: unknown): Set<string> {
+  const normalized = toTrimmedString(raw);
+  if (!normalized) return new Set();
+  return new Set(
+    normalized
+      .split(/[,\n;]/)
+      .map((x) => normalizeOriginValue(x))
       .filter(Boolean)
   );
+}
+
+function buildCorsHeaders(request: Request, env: Env): Record<string, string> | null {
+  const origin = normalizeOriginValue(request.headers.get('Origin'));
+  if (!origin) return { ...BASE_CORS_HEADERS };
+
+  const requestOrigin = normalizeOriginValue(new URL(request.url).origin);
+  if (origin && requestOrigin && origin === requestOrigin) {
+    return {
+      ...BASE_CORS_HEADERS,
+      'Access-Control-Allow-Origin': origin,
+    };
+  }
+
+  const allowed = parseAllowedOrigins(env.CORS_ALLOWED_ORIGINS);
   const isAllowed = allowed.has(origin);
   if (!isAllowed) return null;
   return {
@@ -156,6 +181,12 @@ function utf8Bytes(input: string): Uint8Array {
   return new TextEncoder().encode(input);
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function getAuthSecret(env: Env): string {
   const authSecret = normalizeSecret(env.AUTH_SECRET);
   const fallback = normalizeSecret(env.GAS_SECRET);
@@ -163,7 +194,7 @@ function getAuthSecret(env: Env): string {
 }
 
 async function importHmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', utf8Bytes(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+  return crypto.subtle.importKey('raw', toArrayBuffer(utf8Bytes(secret)), { name: 'HMAC', hash: 'SHA-256' }, false, [
     'sign',
     'verify',
   ]);
@@ -181,7 +212,7 @@ async function signToken(payload: JsonMap, secret: string, ttlSeconds: number): 
   const encodedBody = encodeBase64Url(utf8Bytes(JSON.stringify(body)));
   const data = `${encodedHeader}.${encodedBody}`;
   const key = await importHmacKey(secret);
-  const signature = await crypto.subtle.sign('HMAC', key, utf8Bytes(data));
+  const signature = await crypto.subtle.sign('HMAC', key, toArrayBuffer(utf8Bytes(data)));
   return `${data}.${encodeBase64Url(new Uint8Array(signature))}`;
 }
 
@@ -214,7 +245,7 @@ async function verifyToken(token: string, secret: string): Promise<JsonMap | nul
   } catch {
     return null;
   }
-  const valid = await crypto.subtle.verify('HMAC', key, signatureBytes, utf8Bytes(data));
+  const valid = await crypto.subtle.verify('HMAC', key, toArrayBuffer(signatureBytes), toArrayBuffer(utf8Bytes(data)));
   if (!valid) return null;
   const exp = Number(payload.exp);
   if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null;
