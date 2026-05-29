@@ -695,14 +695,49 @@ async function gerarPDF({
           return drawTableHeader(doc, y, tipo);
         };
 
-        let y = drawTableSectionHeader(yStart);
+        const sectionHeaderHeight = 5 + TABLE_HEADER_H + TABLE_HEADER_GAP;
+        const pageStartY = 30;
+        const availableCurrentPage = Math.max(0, TABLE_PAGE_BOTTOM - yStart);
+        const availableFreshPage = Math.max(0, TABLE_PAGE_BOTTOM - pageStartY);
+        const rowLayouts = [];
+        let rowsTotalHeight = 0;
         for (let idx = 0; idx < inds.length; idx++) {
           const rowLayout = buildTableRowLayout(doc, inds[idx], lookup, tipo, mes, ano, setorId);
+          rowLayouts.push(rowLayout);
+          rowsTotalHeight += rowLayout.rowHeight;
+          if ((idx + 1) % rowsYieldEvery === 0) await yieldToMainThread();
+        }
+        const totalBlockHeight = sectionHeaderHeight + rowsTotalHeight;
+
+        // Regra principal: não repartir tabela quando ela cabe inteira.
+        const drawWholeTable = (startY) => {
+          let y = drawTableSectionHeader(startY);
+          rowLayouts.forEach((layout, idx) => {
+            y = drawTableRow(doc, y, layout, idx);
+          });
+          return y;
+        };
+
+        if (totalBlockHeight <= availableCurrentPage) {
+          return drawWholeTable(yStart);
+        }
+
+        if (totalBlockHeight <= availableFreshPage) {
+          doc.addPage();
+          redrawModuloHeader();
+          return drawWholeTable(pageStartY);
+        }
+
+        // Fallback controlado: tabela maior que página inteira.
+        // Ainda assim, a quebra ocorre apenas entre linhas (nunca no meio da linha).
+        let y = drawTableSectionHeader(yStart);
+        for (let idx = 0; idx < rowLayouts.length; idx++) {
+          const rowLayout = rowLayouts[idx];
           const nextY = y + rowLayout.rowHeight;
           if (nextY > TABLE_PAGE_BOTTOM) {
             doc.addPage();
             redrawModuloHeader();
-            y = drawTableSectionHeader(30);
+            y = drawTableSectionHeader(pageStartY);
           }
           y = drawTableRow(doc, y, rowLayout, idx);
           if ((idx + 1) % rowsYieldEvery === 0) {

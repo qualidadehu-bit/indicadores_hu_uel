@@ -953,14 +953,12 @@ async function handleAiSummary(
     const meta = metasAno.find((m) => sameId(m.indicador_id, ind.id));
     const valor = numberOrNull(lanc?.valor);
     const valorMeta = numberOrNull(meta?.valor);
-    const delta = valor !== null && valorMeta !== null ? Number((valor - valorMeta).toFixed(2)) : null;
     return {
       indicador_id: ind.id,
       nome: toTrimmedString(ind.label || ind.nome || ind.id),
       unidade: toTrimmedString(ind.unidade || ''),
       valor_mes: valor,
       meta: valorMeta,
-      delta_meta: delta,
       status: statusMeta(valor, valorMeta, ind.tipo_direcao_meta),
     };
   });
